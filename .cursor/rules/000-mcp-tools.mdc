@@ -1,0 +1,339 @@
+---
+alwaysApply: true
+---
+
+# MCP Tool Creation Rules for mcp-tutorial Repository
+
+## Repository Overview
+This repository demonstrates MCP (Model Context Protocol) server implementations using the `github.com/mark3labs/mcp-go v0.32.0` library focused on Streamable HTTP transport for external API integration.
+
+## Tool Creation Guidelines
+
+### 1. Tool Structure and Patterns
+
+When creating new MCP tools, follow these established patterns:
+
+#### File Organization
+- **New tools**: Add to `mcp/tools.go` or create separate tool files in the `mcp/` package
+- **Naming convention**: Use PascalCase with "Tool" suffix (e.g., `CalculatorTool`, `SystemInfoTool`)
+- **Function signature**: `func ToolName() server.ServerTool`
+
+#### Tool Definition Template
+```go
+func ExternalAPITool() server.ServerTool {
+    tool := mcp.NewTool("external_api_call",
+        mcp.WithDescription("Make authenticated API calls to external services"),
+        // Standard parameters for API calls
+        mcp.WithString("endpoint",
+            mcp.Description("API endpoint URL to call"),
+            mcp.Required(),
+        ),
+        mcp.WithString("method",
+            mcp.Description("HTTP method to use"),
+            mcp.Required(),
+            mcp.Enum("GET", "POST", "PUT", "DELETE", "PATCH"),
+        ),
+        mcp.WithString("username",
+            mcp.Description("Basic auth username"),
+            mcp.Required(),
+        ),
+        mcp.WithString("password",
+            mcp.Description("Basic auth password"),
+            mcp.Required(),
+        ),
+        mcp.WithString("body",
+            mcp.Description("Request body (JSON string for POST/PUT)"),
+        ),
+        mcp.WithString("content_type",
+            mcp.Description("Content-Type header"),
+            mcp.DefaultString("application/json"),
+        ),
+    )
+
+    handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+        // Extract and validate parameters
+        endpoint, err := request.RequireString("endpoint")
+        if err != nil {
+            return mcp.NewToolResultError(err.Error()), nil
+        }
+        
+        method, err := request.RequireString("method")
+        if err != nil {
+            return mcp.NewToolResultError(err.Error()), nil
+        }
+        
+        username, err := request.RequireString("username")
+        if err != nil {
+            return mcp.NewToolResultError(err.Error()), nil
+        }
+        
+        password, err := request.RequireString("password")
+        if err != nil {
+            return mcp.NewToolResultError(err.Error()), nil
+        }
+        
+        // Optional parameters
+        body := request.GetString("body", "")
+        contentType := request.GetString("content_type", "application/json")
+        
+        // Create HTTP client with timeout
+        client := &http.Client{
+            Timeout: 30 * time.Second,
+        }
+        
+        // Prepare request body
+        var reqBody io.Reader
+        if body != "" {
+            reqBody = strings.NewReader(body)
+        }
+        
+        // Create HTTP request
+        req, err := http.NewRequestWithContext(ctx, method, endpoint, reqBody)
+        if err != nil {
+            return mcp.NewToolResultError(fmt.Sprintf("failed to create request: %v", err)), nil
+        }
+        
+        // Set basic auth header
+        req.SetBasicAuth(username, password)
+        
+        // Set content type for requests with body
+        if body != "" {
+            req.Header.Set("Content-Type", contentType)
+        }
+        
+        // Make the API call
+        resp, err := client.Do(req)
+        if err != nil {
+            return mcp.NewToolResultError(fmt.Sprintf("API call failed: %v", err)), nil
+        }
+        defer resp.Body.Close()
+        
+        // Read response
+        responseBody, err := io.ReadAll(resp.Body)
+        if err != nil {
+            return mcp.NewToolResultError(fmt.Sprintf("failed to read response: %v", err)), nil
+        }
+        
+        // Format result
+        result := fmt.Sprintf("Status: %s\nResponse:\n%s", resp.Status, string(responseBody))
+        
+        return mcp.NewToolResultText(result), nil
+    }
+
+    return server.ServerTool{
+        Tool:    tool,
+        Handler: handler,
+    }
+}
+```
+
+### 2. Parameter Types and Validation
+
+#### Supported Parameter Types
+- **String**: `mcp.WithString("name", options...)`
+- **Number**: `mcp.WithNumber("name", options...)`
+- **Boolean**: `mcp.WithBoolean("name", options...)`
+
+#### Parameter Options
+- `mcp.Description("text")`: Always provide clear descriptions
+- `mcp.Required()`: Mark required parameters
+- `mcp.Enum("val1", "val2", ...)`: Restrict to specific values
+- `mcp.DefaultString("value")`: Set default values for optional params
+
+#### Parameter Extraction in Handlers
+```go
+// Required parameters
+stringVal, err := request.RequireString("param_name")
+numberVal, err := request.RequireFloat("numeric_param")
+boolVal, err := request.RequireBool("bool_param")
+
+// Optional parameters with defaults
+optionalStr := request.GetString("optional_param", "default")
+optionalNum := request.GetFloat("optional_num", 0.0)
+optionalBool := request.GetBool("optional_bool", false)
+```
+
+### 3. Error Handling Patterns
+
+#### Input Validation
+```go
+// Validate required parameters
+if err != nil {
+    return mcp.NewToolResultError(err.Error()), nil
+}
+
+// Business logic validation
+if someCondition {
+    return mcp.NewToolResultError("specific error message"), nil
+}
+```
+
+#### Common Validation Patterns
+- Check for division by zero in mathematical operations
+- Validate ranges for numeric inputs
+- Check for negative values where inappropriate
+- Validate enum values match expected options
+
+### 4. Result Formatting
+
+#### Text Results
+```go
+return mcp.NewToolResultText("formatted result string"), nil
+```
+
+#### Formatted Results (from existing patterns)
+```go
+// Mathematical operations with operator symbols
+resultStr := fmt.Sprintf("%.2f %s %.2f = %.6f", firstNum, operatorSymbol, secondNum, result)
+
+// Time/date formatting with multiple format options
+switch format {
+case "iso":
+    result = now.Format("2006-01-02")
+case "rfc3339":
+    result = now.Format(time.RFC3339)
+case "human":
+    result = now.Format("Monday, January 2, 2006")
+}
+```
+
+### 5. Tool Registration
+
+After creating a new tool, register it in the streamable HTTP server implementation:
+
+#### In cmd/streamable_http/main.go:
+```go
+mcpServer.AddTools(
+    mcp.CalculatorTool(),
+    mcp.SystemInfoTool(),
+    mcp.YourNewAPITool(), // Add your new API tool here
+)
+```
+
+### 6. Package Structure Best Practices
+
+#### Import Requirements
+```go
+import (
+    "context"
+    "fmt"
+    "io"
+    "net/http"
+    "strings"
+    "time"
+    
+    "github.com/mark3labs/mcp-go/mcp"
+    "github.com/mark3labs/mcp-go/server"
+)
+```
+
+#### Documentation
+- Add clear function comments describing the tool's purpose
+- Include examples of usage in comments when helpful
+- Document any special behavior or limitations
+
+### 7. Testing and Validation
+
+#### Tool Testing Commands
+```bash
+# Test with external API tools:
+# "Make a GET request to https://api.example.com/data with basic auth"
+# "Call external service using the API tool"
+```
+
+#### Server Testing
+```bash
+# Build the streamable HTTP binary
+go build -o bin/streamable_http cmd/streamable_http/main.go
+
+# Start the server
+./bin/streamable_http
+
+# Test API endpoints directly
+curl -X POST "http://localhost:8081/mcp" \
+  -H "Content-Type: application/json" \
+  -d '{"method":"tools/list","id":1}'
+```
+
+### 8. Common Tool Categories
+
+Focus on external API integration tools:
+
+#### REST API Tools
+- Follow external API pattern with HTTP methods
+- Include proper error handling for network failures and HTTP errors
+- Support various content types (JSON, XML, form data)
+- Implement proper timeout handling
+
+#### Authentication Patterns
+- Basic Auth (username/password) as shown in template
+- API Key authentication (custom headers)
+- Bearer token authentication
+- OAuth integration for complex auth flows
+
+#### API Response Handling
+- Parse JSON responses for structured data
+- Handle different HTTP status codes appropriately
+- Format response data for display
+- Error message extraction from API responses
+
+### 9. Architecture Integration
+
+#### MCP Capabilities
+Your tools automatically integrate with:
+- **Streamable HTTP transport**: RESTful API calls over HTTP
+- **Shared business logic**: External API integration patterns in `/mcp` package
+- **Multiple clients**: Claude Desktop, Cursor IDE, and any HTTP-capable MCP clients
+
+#### Server Configuration
+The streamable HTTP server implementation:
+1. Creates MCP server with tool capabilities
+2. Adds API integration tools with external connectivity
+3. Wraps with HTTP transport server
+4. Starts listening on port 8081 for HTTP requests
+5. Provides stateless API calling capabilities
+
+## Quick Checklist for New API Tools
+
+- [ ] Tool function name ends with "Tool"
+- [ ] Clear description provided for API functionality
+- [ ] All parameters have descriptions (endpoint, method, auth, etc.)
+- [ ] Required vs optional parameters properly marked
+- [ ] Input validation implemented for URLs and HTTP methods
+- [ ] HTTP client timeout configured (30 seconds recommended)
+- [ ] Basic auth header implementation included
+- [ ] Appropriate error messages for network failures
+- [ ] HTTP status code handling implemented
+- [ ] Response formatting follows established patterns
+- [ ] Tool registered in streamable HTTP server
+- [ ] Function documented with API usage examples
+- [ ] Tested with HTTP server implementation
+
+## Example Integration
+
+After creating a new API tool, it will automatically be available through:
+- **Streamable HTTP**: `http://localhost:8081/mcp` (after starting server)
+- **Claude Desktop**: Via configured MCP HTTP connection
+- **Cursor IDE**: Via configured MCP HTTP connection
+- **Any HTTP client**: Direct POST requests to `/mcp` endpoint
+
+## API Tool Usage Examples
+
+```bash
+# Example API tool call via HTTP
+curl -X POST "http://localhost:8081/mcp" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "tools/call",
+    "params": {
+      "name": "external_api_call",
+      "arguments": {
+        "endpoint": "https://api.example.com/users",
+        "method": "GET",
+        "username": "admin",
+        "password": "secret123"
+      }
+    },
+    "id": 1
+  }'
+```
