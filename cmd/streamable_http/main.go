@@ -47,11 +47,23 @@ func main() {
 	mcpServer.AddTools(
 		mcp.CalculatorTool(),
 		mcp.SystemInfoTool(),
+		// Recon-SaaS tools
+		mcp.ReconFileAnalysisTool(),
+		mcp.ReconMasterSourceTool(),
+		mcp.ReconMerchantSourceTool(),
+		mcp.ReconStateRuleTool(),
+		mcp.ReconProcessSetupTool(),
 	)
 
 	mcpServer.AddPrompts(
 		mcp.MathTutorPrompt(),
 		mcp.CodeReviewPrompt(),
+		// Recon-SaaS prompts
+		mcp.ReconFileAnalysisPrompt(),
+		mcp.ReconMasterSourcePrompt(),
+		mcp.ReconMerchantSourcePrompt(),
+		mcp.ReconStateRulePrompt(),
+		mcp.ReconProcessSetupPrompt(),
 	)
 
 	mcpServer.AddResources(
