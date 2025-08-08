@@ -238,9 +238,6 @@ func ReconFileAnalysisPrompt() server.ServerPrompt {
 		mcp.WithArgument("file2_name",
 			mcp.ArgumentDescription("Name of the second reconciliation file to analyze"),
 		),
-		mcp.WithArgument("analysis_focus",
-			mcp.ArgumentDescription("Specific analysis focus (column_identification, data_validation, pattern_recognition, compatibility_check)"),
-		),
 	)
 
 	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
@@ -255,9 +252,6 @@ func ReconFileAnalysisPrompt() server.ServerPrompt {
 		}
 
 		analysisFocus := "comprehensive"
-		if af, exists := request.Params.Arguments["analysis_focus"]; exists && af != "" {
-			analysisFocus = af
-		}
 
 		elaboratePrompt := fmt.Sprintf(`You are an intelligent MCP server tool designed to handle file upload and analysis for recon-saas merchant onboarding. Your primary responsibility is to analyze uploaded reconciliation files and extract comprehensive metadata, specifically identifying EntityID and Amount columns for master source creation.
 
@@ -329,7 +323,7 @@ Provide comprehensive analysis including:
 - No amount columns: Request guidance on amount field
 - Encoding issues: Suggest UTF-8 conversion
 
-Focus on %s analysis approach. Provide detailed, actionable insights for merchant onboarding success.`, file1Name, file2Name, analysisFocus)
+Focus on %s analysis approach.`, file1Name, file2Name, analysisFocus)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -360,9 +354,6 @@ func ReconMasterSourcePrompt() server.ServerPrompt {
 		mcp.WithArgument("configuration_mode",
 			mcp.ArgumentDescription("Configuration generation mode (automatic, guided, custom)"),
 		),
-		mcp.WithArgument("validation_level",
-			mcp.ArgumentDescription("Validation strictness (basic, standard, comprehensive)"),
-		),
 	)
 
 	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
@@ -374,11 +365,6 @@ func ReconMasterSourcePrompt() server.ServerPrompt {
 		configMode := "automatic"
 		if cm, exists := request.Params.Arguments["configuration_mode"]; exists && cm != "" {
 			configMode = cm
-		}
-
-		validationLevel := "comprehensive"
-		if vl, exists := request.Params.Arguments["validation_level"]; exists && vl != "" {
-			validationLevel = vl
 		}
 
 		elaboratePrompt := fmt.Sprintf(`You are an intelligent MCP server tool designed to generate master source configurations for recon-saas and execute the API calls to create them. Your responsibility is to create configurations using the exact format requirements, execute API calls, and capture master source IDs.
@@ -427,7 +413,7 @@ Generate descriptive names based on %s type:
 - Capture master_source_id from responses
 - Handle errors and partial failures
 
-**VALIDATION CHECKLIST (%s level):**
+**VALIDATION CHECKLIST:**
 - All file columns included in source_schema
 - All columns have type: "string"
 - All file columns included in mapping_config
@@ -444,7 +430,7 @@ Generate descriptive names based on %s type:
 - 422 Unprocessable Entity: Business logic errors
 
 Configuration mode: %s
-Provide complete API payloads, execute calls, and capture all master_source_id values for future operations.`, sourceType, validationLevel, configMode)
+Provide complete API payloads, execute calls, and capture all master_source_id values.`, sourceType, configMode)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -454,7 +440,7 @@ Provide complete API payloads, execute calls, and capture all master_source_id v
 		}
 
 		return mcp.NewGetPromptResult(
-			fmt.Sprintf("Recon-SaaS Master Source Creation: %s (%s mode, %s validation)", sourceType, configMode, validationLevel),
+			fmt.Sprintf("Recon-SaaS Master Source Creation: %s (%s mode)", sourceType, configMode),
 			messages,
 		), nil
 	}
@@ -511,12 +497,12 @@ func ReconMerchantSourcePrompt() server.ServerPrompt {
 - Create merchant-specific source configurations using master source IDs
 - Use merchant_id: %s (if provided, otherwise request from user)
 - Execute API calls to create merchant sources
-- Capture merchant_source_id from API responses for future operations
+- Capture merchant_source_id from API responses
 
 **DATA FLOW MANAGEMENT:**
 - Use master_source_id values from previous operations
 - Generate appropriate merchant source names using %s strategy
-- Prepare for next step (recon state creation)
+- Complete merchant source configuration
 
 **REQUIRED INPUT DATA:**
 **From Previous Operations:**
@@ -555,7 +541,7 @@ Standard merchant config with %s upload:
 - Create merchant source for File 1
 - Create merchant source for File 2
 - Capture merchant_source_id from each response
-- Prepare data for recon state creation
+- Complete merchant source setup
 
 **ERROR HANDLING:**
 - 400 Bad Request: Invalid merchant_id or master_source_id
@@ -572,7 +558,7 @@ Standard merchant config with %s upload:
 - source_schema is explicitly set to null
 - mapping_config is explicitly set to null
 
-Capture both merchant_source_id values for the next operation (recon state creation).`, merchantID, namingStrategy, merchantID, namingStrategy, uploadConfig, uploadEnabled)
+Capture both merchant_source_id values to complete merchant source configuration.`, merchantID, namingStrategy, merchantID, namingStrategy, uploadConfig, uploadEnabled)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -597,9 +583,6 @@ Capture both merchant_source_id values for the next operation (recon state creat
 func ReconStateRulePrompt() server.ServerPrompt {
 	prompt := mcp.NewPrompt("recon_state_rule",
 		mcp.WithPromptDescription("Create reconciliation states and corresponding rules for recon-saas, handling both matched and unmatched transaction scenarios"),
-		mcp.WithArgument("rule_complexity",
-			mcp.ArgumentDescription("Complexity level of reconciliation rules (basic, standard, advanced, custom)"),
-		),
 		mcp.WithArgument("matching_strategy",
 			mcp.ArgumentDescription("Strategy for matching records (exact_match, fuzzy_match, amount_tolerance, date_range)"),
 		),
@@ -609,11 +592,6 @@ func ReconStateRulePrompt() server.ServerPrompt {
 	)
 
 	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		ruleComplexity := "standard"
-		if rc, exists := request.Params.Arguments["rule_complexity"]; exists && rc != "" {
-			ruleComplexity = rc
-		}
-
 		matchingStrategy := "exact_match"
 		if ms, exists := request.Params.Arguments["matching_strategy"]; exists && ms != "" {
 			matchingStrategy = ms
@@ -624,7 +602,7 @@ func ReconStateRulePrompt() server.ServerPrompt {
 			validationMode = vm
 		}
 
-		elaboratePrompt := fmt.Sprintf(`You are an intelligent MCP server tool designed to create reconciliation states and corresponding rules for recon-saas. Your responsibility is to create comprehensive reconciliation logic that handles both matched and unmatched transaction scenarios with %s complexity using %s strategy.
+		elaboratePrompt := fmt.Sprintf(`You are an intelligent MCP server tool designed to create reconciliation states and corresponding rules for recon-saas. Your responsibility is to create comprehensive reconciliation logic that handles both matched and unmatched transaction scenarios using %s strategy.
 
 **CORE RESPONSIBILITIES:**
 
@@ -706,6 +684,16 @@ Create logical expressions for each reconciliation scenario:
 3. Create missing record rule using recon_state_id_3 → Capture rule_id_3
 4. Create missing record rule using recon_state_id_4 → Capture rule_id_4
 
+**API RESPONSE VISIBILITY:**
+The tool will display complete reconciliation state and rule creation results including:
+- Recon state creation API responses with generated recon_state_id values
+- Complete rule creation API responses with generated rule_id values
+- Rule expression validation results and user approval status
+- Generated logical expressions for each reconciliation scenario
+- State priority assignments and remarks configuration
+- API execution summary with validation mode applied
+- Detailed rule-to-state mapping relationships
+
 **VALIDATION CHECKLIST:**
 - merchant_id is valid and non-empty
 - master_source_id_1 and master_source_id_2 are valid
@@ -714,7 +702,7 @@ Create logical expressions for each reconciliation scenario:
 - Rule expressions follow correct syntax
 - User has approved all expressions
 
-Capture all recon_state_id and rule_id values for the final lookup creation step.`, ruleComplexity, matchingStrategy, validationMode, matchingStrategy, validationMode)
+Capture all recon_state_id and rule_id values to complete reconciliation logic setup.`, matchingStrategy, validationMode, matchingStrategy, validationMode)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -724,7 +712,7 @@ Capture all recon_state_id and rule_id values for the final lookup creation step
 		}
 
 		return mcp.NewGetPromptResult(
-			fmt.Sprintf("Recon-SaaS State & Rule Creation: %s rules (%s strategy, %s validation)", ruleComplexity, matchingStrategy, validationMode),
+			fmt.Sprintf("Recon-SaaS State & Rule Creation: %s strategy (%s validation)", matchingStrategy, validationMode),
 			messages,
 		), nil
 	}
@@ -738,13 +726,13 @@ Capture all recon_state_id and rule_id values for the final lookup creation step
 // ReconProcessSetupPrompt Lookup and recon process creation prompt
 func ReconProcessSetupPrompt() server.ServerPrompt {
 	prompt := mcp.NewPrompt("recon_process_setup",
-		mcp.WithPromptDescription("Create lookup configurations and reconciliation processes for recon-saas, completing the automated reconciliation setup"),
+		mcp.WithPromptDescription("Create lookup configurations and reconciliation processes for recon-saas automated reconciliation setup"),
 		mcp.WithArgument("process_type",
 			mcp.ArgumentDescription("Type of reconciliation process (gateway, payment, transaction, settlement)"),
 		),
-		mcp.WithArgument("lookup_strategy",
-			mcp.ArgumentDescription("Lookup configuration strategy (entity_based, amount_based, hybrid, custom)"),
-		),
+		//mcp.WithArgument("lookup_strategy",
+		//	mcp.ArgumentDescription("Lookup configuration strategy (entity_based, amount_based, hybrid, custom)"),
+		//),
 		mcp.WithArgument("reporting_config",
 			mcp.ArgumentDescription("Reporting configuration preference (standard, detailed, minimal, custom)"),
 		),
@@ -757,9 +745,9 @@ func ReconProcessSetupPrompt() server.ServerPrompt {
 		}
 
 		lookupStrategy := "entity_based"
-		if ls, exists := request.Params.Arguments["lookup_strategy"]; exists && ls != "" {
-			lookupStrategy = ls
-		}
+		//if ls, exists := request.Params.Arguments["lookup_strategy"]; exists && ls != "" {
+		//	lookupStrategy = ls
+		//}
 
 		reportingConfig := "standard"
 		if rc, exists := request.Params.Arguments["reporting_config"]; exists && rc != "" {
@@ -774,10 +762,15 @@ func ReconProcessSetupPrompt() server.ServerPrompt {
 - Create lookup configuration for record identification using %s strategy
 - Capture lookup_id for master recon process configuration
 
+**From Previous Prompts:**
+- source_1_name, source_2_name: Source names from Prompt 1
+- all_columns_file1, all_columns_file2: All column names from both files
+- source_schema_file1, source_schema_file2: Source schemas from recon_master_source prompt
+- mapping_config_file1, mapping_config_file2: Mapping configs from recon_master_source prompt
+
 **Master Recon Process Creation:**
 - Create comprehensive master reconciliation process for %s type
 - Configure lookup mappings, rules, sources, and report configurations
-- Generate column mappings for %s reporting
 
 **Merchant Recon Process Creation:**
 - Create merchant-specific reconciliation process

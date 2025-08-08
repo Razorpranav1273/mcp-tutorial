@@ -196,17 +196,22 @@ func ReconFileAnalysisTool() server.ServerTool {
 	tool := mcp.NewTool("recon_file_analysis",
 		mcp.WithDescription("Analyze uploaded reconciliation files to identify EntityID and Amount columns for master source creation"),
 		mcp.WithString("file1_path",
-			mcp.Description("Full file path to the first reconciliation CSV file (e.g., /path/to/transactions.csv)"),
+			mcp.Description("Full file path to the first reconciliation file (e.g., /path/to/transactions.csv or /path/to/transactions.xlsx)"),
 			mcp.Required(),
 		),
 		mcp.WithString("file2_path",
-			mcp.Description("Full file path to the second reconciliation CSV file (e.g., /path/to/bank_statements.csv)"),
+			mcp.Description("Full file path to the second reconciliation file (e.g., /path/to/bank_statements.csv or /path/to/bank_statements.xlsx)"),
 			mcp.Required(),
 		),
-		mcp.WithString("analysis_mode",
-			mcp.Description("Analysis mode for file processing"),
-			mcp.Enum("comprehensive", "quick", "validation_only"),
-			mcp.DefaultString("comprehensive"),
+		mcp.WithString("file1_type",
+			mcp.Description("Type of the first file"),
+			mcp.Required(),
+			mcp.Enum("csv", "excel"),
+		),
+		mcp.WithString("file2_type",
+			mcp.Description("Type of the second file"),
+			mcp.Required(),
+			mcp.Enum("csv", "excel"),
 		),
 	)
 
@@ -221,15 +226,23 @@ func ReconFileAnalysisTool() server.ServerTool {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		analysisMode := request.GetString("analysis_mode", "comprehensive")
+		file1Type, err := request.RequireString("file1_type")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 
-		// Analyze both CSV files
-		analysis1, err := analyzeCSVFile(file1Path, "file_1")
+		file2Type, err := request.RequireString("file2_type")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		// Analyze both files based on their type
+		analysis1, err := analyzeFile(file1Path, "file_1", file1Type)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to analyze file 1: %v", err)), nil
 		}
 
-		analysis2, err := analyzeCSVFile(file2Path, "file_2")
+		analysis2, err := analyzeFile(file2Path, "file_2", file2Type)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to analyze file 2: %v", err)), nil
 		}
@@ -245,7 +258,7 @@ func ReconFileAnalysisTool() server.ServerTool {
 				"common_patterns":          []string{"amount", "date"},
 				"suggested_reconciliation": "Match by EntityID and Amount fields",
 			},
-			"analysis_mode": analysisMode,
+			"analysis_type": "comprehensive",
 			"timestamp":     time.Now().Format(time.RFC3339),
 		}
 
@@ -408,6 +421,11 @@ func ReconMerchantSourceTool() server.ServerTool {
 			mcp.Description("Name of the second source"),
 			mcp.Required(),
 		),
+		mcp.WithString("source_naming_strategy",
+			mcp.Description("Strategy for naming merchant sources"),
+			mcp.Enum("descriptive", "timestamp", "sequential", "custom"),
+			mcp.DefaultString("descriptive"),
+		),
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -436,13 +454,19 @@ func ReconMerchantSourceTool() server.ServerTool {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
+		namingStrategy := request.GetString("source_naming_strategy", "descriptive")
+
+		// Generate merchant source names based on strategy
+		merchantSource1Name := generateMerchantSourceName(source1Name, namingStrategy, 1)
+		merchantSource2Name := generateMerchantSourceName(source2Name, namingStrategy, 2)
+
 		// Create merchant sources via API calls
-		merchantSource1ID, err := createMerchantSource(ctx, merchantID, masterSourceID1, source1Name+" - Merchant Portal")
+		merchantSource1ID, err := createMerchantSource(ctx, merchantID, masterSourceID1, merchantSource1Name)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create merchant source 1: %v", err)), nil
 		}
 
-		merchantSource2ID, err := createMerchantSource(ctx, merchantID, masterSourceID2, source2Name+" - Merchant Portal")
+		merchantSource2ID, err := createMerchantSource(ctx, merchantID, masterSourceID2, merchantSource2Name)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create merchant source 2: %v", err)), nil
 		}
@@ -459,15 +483,17 @@ func ReconMerchantSourceTool() server.ServerTool {
 			"created_merchant_sources": map[string]interface{}{
 				"merchant_source_1": map[string]interface{}{
 					"merchant_source_id": merchantSource1ID,
-					"name":               source1Name + " - Merchant Portal",
+					"name":               merchantSource1Name,
 					"master_source_id":   masterSourceID1,
 					"merchant_id":        merchantID,
+					"naming_strategy":    namingStrategy,
 				},
 				"merchant_source_2": map[string]interface{}{
 					"merchant_source_id": merchantSource2ID,
-					"name":               source2Name + " - Merchant Portal",
+					"name":               merchantSource2Name,
 					"master_source_id":   masterSourceID2,
 					"merchant_id":        merchantID,
+					"naming_strategy":    namingStrategy,
 				},
 			},
 			"for_future_prompts": map[string]interface{}{
@@ -517,6 +543,11 @@ func ReconStateRuleTool() server.ServerTool {
 			mcp.Description("Whether to approve the generated rule expressions"),
 			mcp.DefaultBool(true),
 		),
+		mcp.WithString("validation_mode",
+			mcp.Description("User validation mode for rule expressions"),
+			mcp.Enum("automatic", "guided", "manual"),
+			mcp.DefaultString("guided"),
+		),
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -546,9 +577,12 @@ func ReconStateRuleTool() server.ServerTool {
 		}
 
 		approveExpressions := request.GetBool("approve_expressions", true)
+		validationMode := request.GetString("validation_mode", "guided")
 
-		if !approveExpressions {
-			return mcp.NewToolResultError("Rule expressions were not approved by user"), nil
+		// Apply validation mode logic
+		validationResult, err := applyValidationMode(validationMode, approveExpressions, masterSourceID1, masterSourceID2)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		// Create recon states
@@ -557,8 +591,8 @@ func ReconStateRuleTool() server.ServerTool {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create recon states: %v", err)), nil
 		}
 
-		// Create rules
-		rules, err := createReconRules(ctx, merchantID, masterSourceID1, masterSourceID2, reconStates)
+		// Create rules with validation result
+		rules, err := createReconRulesWithValidation(ctx, merchantID, masterSourceID1, masterSourceID2, reconStates, validationResult)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create recon rules: %v", err)), nil
 		}
@@ -569,8 +603,10 @@ func ReconStateRuleTool() server.ServerTool {
 			"execution_summary": map[string]interface{}{
 				"merchant_id":               merchantID,
 				"total_recon_states":        len(reconStates),
-				"total_rules":               len(rules),
+				"total_rules":               len(rules) - 1, // Subtract 1 for validation_summary
 				"user_approved_expressions": approveExpressions,
+				"validation_mode":           validationMode,
+				"validation_applied":        validationResult.Approved,
 			},
 			"created_recon_states": reconStates,
 			"created_rules":        rules,
@@ -629,6 +665,30 @@ func ReconProcessSetupTool() server.ServerTool {
 			mcp.Description("Name of the second source"),
 			mcp.Required(),
 		),
+		mcp.WithString("source1_columns",
+			mcp.Description("JSON array of column names from first file"),
+			mcp.Required(),
+		),
+		mcp.WithString("source2_columns",
+			mcp.Description("JSON array of column names from second file"),
+			mcp.Required(),
+		),
+		mcp.WithString("source1_entityid",
+			mcp.Description("Selected EntityID column name for first source"),
+			mcp.Required(),
+		),
+		mcp.WithString("source2_entityid",
+			mcp.Description("Selected EntityID column name for second source"),
+			mcp.Required(),
+		),
+		mcp.WithString("source1_amount",
+			mcp.Description("Selected Amount column name for first source"),
+			mcp.Required(),
+		),
+		mcp.WithString("source2_amount",
+			mcp.Description("Selected Amount column name for second source"),
+			mcp.Required(),
+		),
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -672,6 +732,37 @@ func ReconProcessSetupTool() server.ServerTool {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
+		// Extract column information
+		source1Columns, err := request.RequireString("source1_columns")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		source2Columns, err := request.RequireString("source2_columns")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		source1EntityID, err := request.RequireString("source1_entityid")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		source2EntityID, err := request.RequireString("source2_entityid")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		source1Amount, err := request.RequireString("source1_amount")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		source2Amount, err := request.RequireString("source2_amount")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
 		// Parse rule IDs
 		var ruleIDs []string
 		if err := json.Unmarshal([]byte(ruleIDsJSON), &ruleIDs); err != nil {
@@ -684,8 +775,8 @@ func ReconProcessSetupTool() server.ServerTool {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create lookup: %v", err)), nil
 		}
 
-		// Create master recon process
-		masterReconProcessID, err := createMasterReconProcess(ctx, source1Name, source2Name, lookupID, masterSourceID1, masterSourceID2, ruleIDs)
+		// Create master recon process with column mappings
+		masterReconProcessID, err := createMasterReconProcess(ctx, source1Name, source2Name, lookupID, masterSourceID1, masterSourceID2, ruleIDs, source1Columns, source2Columns, source1EntityID, source2EntityID, source1Amount, source2Amount)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create master recon process: %v", err)), nil
 		}

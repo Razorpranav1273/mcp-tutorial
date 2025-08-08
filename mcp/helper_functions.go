@@ -13,9 +13,100 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/xuri/excelize/v2"
 )
 
 // Helper functions for recon-saas API interactions
+
+// ValidationResult holds the result of validation mode processing
+type ValidationResult struct {
+	Mode             string            `json:"mode"`
+	Approved         bool              `json:"approved"`
+	RuleExpressions  map[string]string `json:"rule_expressions"`
+	ValidationNotes  []string          `json:"validation_notes"`
+	RequiresApproval bool              `json:"requires_approval"`
+}
+
+// applyValidationMode applies validation logic based on the selected mode
+func applyValidationMode(mode string, approveExpressions bool, masterSourceID1, masterSourceID2 string) (*ValidationResult, error) {
+	result := &ValidationResult{
+		Mode:            mode,
+		RuleExpressions: make(map[string]string),
+		ValidationNotes: make([]string, 0),
+	}
+
+	// Generate rule expressions
+	result.RuleExpressions["reconciled"] = fmt.Sprintf("%s.EntityID == %s.EntityID && %s.Amount.Equal(%s.Amount)",
+		masterSourceID1, masterSourceID2, masterSourceID1, masterSourceID2)
+	result.RuleExpressions["amount_mismatch"] = fmt.Sprintf("%s.EntityID == %s.EntityID && !%s.Amount.Equal(%s.Amount)",
+		masterSourceID1, masterSourceID2, masterSourceID1, masterSourceID2)
+	result.RuleExpressions["missing_record"] = "NoRecord.Value == true"
+
+	switch mode {
+	case "automatic":
+		result.Approved = true
+		result.RequiresApproval = false
+		result.ValidationNotes = append(result.ValidationNotes, "Automatic validation: All rule expressions approved automatically")
+
+	case "guided":
+		result.Approved = approveExpressions
+		result.RequiresApproval = true
+		if approveExpressions {
+			result.ValidationNotes = append(result.ValidationNotes, "Guided validation: User approved rule expressions")
+		} else {
+			result.ValidationNotes = append(result.ValidationNotes, "Guided validation: User rejected rule expressions")
+			return nil, fmt.Errorf("rule expressions were not approved by user in guided mode")
+		}
+
+	case "manual":
+		result.Approved = false
+		result.RequiresApproval = true
+		result.ValidationNotes = append(result.ValidationNotes, "Manual validation: Expressions require manual review and modification")
+		if !approveExpressions {
+			return nil, fmt.Errorf("manual validation mode requires user approval of rule expressions")
+		}
+		result.Approved = true
+		result.ValidationNotes = append(result.ValidationNotes, "Manual validation: User manually approved expressions")
+
+	default:
+		return nil, fmt.Errorf("unsupported validation mode: %s", mode)
+	}
+
+	return result, nil
+}
+
+// generateMerchantSourceName generates merchant source names based on the selected naming strategy
+func generateMerchantSourceName(baseName, strategy string, index int) string {
+	switch strategy {
+	case "descriptive":
+		return baseName + " - Merchant Portal"
+	case "timestamp":
+		timestamp := time.Now().Format("20060102_150405")
+		return fmt.Sprintf("%s_%s", baseName, timestamp)
+	case "sequential":
+		return fmt.Sprintf("%s_%03d", baseName, index)
+	case "custom":
+		// For custom strategy, we could allow user-defined patterns
+		// For now, default to descriptive with custom suffix
+		return baseName + " - Custom Source"
+	default:
+		// Fallback to descriptive
+		return baseName + " - Merchant Portal"
+	}
+}
+
+// analyzeFile analyzes a file and returns metadata about columns and data based on file type
+func analyzeFile(filePath, fileID, fileType string) (map[string]interface{}, error) {
+	switch fileType {
+	case "csv":
+		return analyzeCSVFile(filePath, fileID)
+	case "excel":
+		return analyzeExcelFile(filePath, fileID)
+	default:
+		return nil, fmt.Errorf("unsupported file type: %s", fileType)
+	}
+}
 
 // analyzeCSVFile analyzes a CSV file and returns metadata about columns and data
 func analyzeCSVFile(filePath, fileID string) (map[string]interface{}, error) {
@@ -77,6 +168,107 @@ func analyzeCSVFile(filePath, fileID string) (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"filename":             filePath,
 		"file_type":            "csv",
+		"total_rows":           totalRows,
+		"total_columns":        totalColumns,
+		"all_columns":          headers,
+		"entityid_candidates":  entityIDCandidates,
+		"recommended_entityid": recommendedEntityID,
+		"amount_candidates":    amountCandidates,
+		"recommended_amount":   recommendedAmount,
+		"user_selections": map[string]interface{}{
+			"selected_entityid": recommendedEntityID,
+			"selected_amount":   recommendedAmount,
+		},
+	}, nil
+}
+
+// analyzeExcelFile analyzes an Excel file and returns metadata about columns and data
+func analyzeExcelFile(filePath, fileID string) (map[string]interface{}, error) {
+	// Open the Excel file
+	file, err := excelize.OpenFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open Excel file %s: %v", filePath, err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Printf("Warning: failed to close Excel file: %v\n", err)
+		}
+	}()
+
+	// Get the first sheet name (or use the active sheet)
+	sheets := file.GetSheetList()
+	if len(sheets) == 0 {
+		return nil, fmt.Errorf("Excel file %s has no sheets", filePath)
+	}
+
+	sheetName := sheets[0] // Use the first sheet
+
+	// Get all rows from the sheet
+	rows, err := file.GetRows(sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Excel sheet %s: %v", sheetName, err)
+	}
+
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("Excel sheet %s is empty", sheetName)
+	}
+
+	// Extract headers and data rows
+	headers := rows[0]
+	dataRows := rows[1:]
+	totalRows := len(dataRows)
+	totalColumns := len(headers)
+
+	// Convert Excel rows to the same format as CSV for analysis
+	// Ensure all rows have the same number of columns as headers
+	normalizedDataRows := make([][]string, len(dataRows))
+	for i, row := range dataRows {
+		normalizedRow := make([]string, len(headers))
+		for j := 0; j < len(headers); j++ {
+			if j < len(row) {
+				normalizedRow[j] = strings.TrimSpace(row[j])
+			} else {
+				normalizedRow[j] = "" // Fill missing columns with empty strings
+			}
+		}
+		normalizedDataRows[i] = normalizedRow
+	}
+
+	// Analyze each column for patterns and characteristics
+	columnAnalysis := make(map[string]map[string]interface{})
+	for i, columnName := range headers {
+		analysis := analyzeColumn(columnName, i, normalizedDataRows)
+		columnAnalysis[columnName] = analysis
+	}
+
+	// Identify EntityID candidates
+	entityIDCandidates := identifyEntityIDCandidates(headers, columnAnalysis)
+
+	// Identify Amount candidates
+	amountCandidates := identifyAmountCandidates(headers, columnAnalysis)
+
+	// Determine recommendations
+	var recommendedEntityID, recommendedAmount string
+	if len(entityIDCandidates) > 0 {
+		if entityMap, ok := entityIDCandidates[0].(map[string]interface{}); ok {
+			if name, ok := entityMap["column_name"].(string); ok {
+				recommendedEntityID = name
+			}
+		}
+	}
+	if len(amountCandidates) > 0 {
+		if amountMap, ok := amountCandidates[0].(map[string]interface{}); ok {
+			if name, ok := amountMap["column_name"].(string); ok {
+				recommendedAmount = name
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"filename":             filePath,
+		"file_type":            "excel",
+		"sheet_name":           sheetName,
+		"total_sheets":         len(sheets),
 		"total_rows":           totalRows,
 		"total_columns":        totalColumns,
 		"all_columns":          headers,
@@ -459,6 +651,57 @@ func makeReconSaaSAPICall(ctx context.Context, method, endpoint string, payload 
 	return result, nil
 }
 
+// makeReconSaaSAPICallString makes authenticated API calls to recon-saas service and returns string response
+func makeReconSaaSAPICallString(ctx context.Context, method, endpoint string, payload interface{}) (string, error) {
+	const baseURL = "https://recon-saas.dev.razorpay.in"
+	const authHeader = "Basic cmVjb24tc2FhczpyZWNvbi1zYWFz"
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	var reqBody io.Reader
+	if payload != nil {
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal payload: %v", err)
+		}
+		reqBody = bytes.NewReader(payloadBytes)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, baseURL+endpoint, reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", authHeader)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("API call failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %v", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(responseBody))
+	}
+
+	// Handle string response in quotes (e.g., "R2QTjA6dPvcygE")
+	responseStr := strings.TrimSpace(string(responseBody))
+	if strings.HasPrefix(responseStr, "\"") && strings.HasSuffix(responseStr, "\"") {
+		// Remove surrounding quotes
+		responseStr = responseStr[1 : len(responseStr)-1]
+	}
+
+	return responseStr, nil
+}
+
 // createMasterSource creates a master source via recon-saas API
 func createMasterSource(ctx context.Context, name, columnsJSON, entityIDColumn, amountColumn string) (string, error) {
 	var columns []string
@@ -557,13 +800,15 @@ func createMerchantSource(ctx context.Context, merchantID, masterSourceID, name 
 		"mapping_config": nil,
 	}
 
-	result, err := makeReconSaaSAPICall(ctx, "POST", "/v1/admin-recon-saas/sources/create_merchant", payload)
+	// Use the string-specific API call function for create_merchant endpoint
+	merchantSourceID, err := makeReconSaaSAPICallString(ctx, "POST", "/v1/admin-recon-saas/sources/create_merchant", payload)
 	if err != nil {
 		return "", err
 	}
 
-	if id, ok := result["id"].(string); ok {
-		return id, nil
+	// The response should be a string ID (e.g., "R2QTjA6dPvcygE")
+	if merchantSourceID != "" {
+		return merchantSourceID, nil
 	}
 
 	return fmt.Sprintf("mock_merchant_source_%d", time.Now().Unix()), nil
@@ -707,6 +952,110 @@ func createReconRules(ctx context.Context, merchantID, masterSourceID1, masterSo
 	return results, nil
 }
 
+// createReconRulesWithValidation creates reconciliation rules via recon-saas API with validation
+func createReconRulesWithValidation(ctx context.Context, merchantID, masterSourceID1, masterSourceID2 string, reconStates map[string]interface{}, validationResult *ValidationResult) (map[string]interface{}, error) {
+	// Extract recon state IDs
+	getStateID := func(stateName string) string {
+		if state, ok := reconStates[stateName].(map[string]interface{}); ok {
+			if stateID, ok := state["recon_state_id"].(string); ok {
+				return stateID
+			}
+		}
+		return fmt.Sprintf("mock_state_%s", stateName)
+	}
+
+	// Use expressions from validation result if available, otherwise use defaults
+	reconciledExpr := validationResult.RuleExpressions["reconciled"]
+	amountMismatchExpr := validationResult.RuleExpressions["amount_mismatch"]
+	missingRecordExpr := validationResult.RuleExpressions["missing_record"]
+
+	if reconciledExpr == "" {
+		reconciledExpr = fmt.Sprintf("%s.EntityID == %s.EntityID && %s.Amount.Equal(%s.Amount)", masterSourceID1, masterSourceID2, masterSourceID1, masterSourceID2)
+	}
+	if amountMismatchExpr == "" {
+		amountMismatchExpr = fmt.Sprintf("%s.EntityID == %s.EntityID && !%s.Amount.Equal(%s.Amount)", masterSourceID1, masterSourceID2, masterSourceID1, masterSourceID2)
+	}
+	if missingRecordExpr == "" {
+		missingRecordExpr = "NoRecord.Value == true"
+	}
+
+	rules := []map[string]interface{}{
+		{
+			"name":           "Reconciled Transactions",
+			"expression":     reconciledExpr,
+			"recon_state_id": getStateID("reconciled_state"),
+			"type":           "reconciled",
+		},
+		{
+			"name":           "Amount Mismatch Transactions",
+			"expression":     amountMismatchExpr,
+			"recon_state_id": getStateID("amount_mismatch_state"),
+			"type":           "amount_mismatch",
+		},
+		{
+			"name":           "Missing Record in File 1",
+			"expression":     missingRecordExpr,
+			"recon_state_id": getStateID("missing_file1_state"),
+			"type":           "missing_record",
+		},
+		{
+			"name":           "Missing Record in File 2",
+			"expression":     missingRecordExpr,
+			"recon_state_id": getStateID("missing_file2_state"),
+			"type":           "missing_record",
+		},
+	}
+
+	results := make(map[string]interface{})
+	ruleNames := []string{"reconciled_rule", "amount_mismatch_rule", "missing_record_rule_file1", "missing_record_rule_file2"}
+
+	for i, rule := range rules {
+		payload := map[string]interface{}{
+			"merchant_id":    merchantID,
+			"name":           rule["name"],
+			"expression":     rule["expression"],
+			"sources":        []string{masterSourceID1, masterSourceID2},
+			"recon_state_id": rule["recon_state_id"],
+			"type":           "recon",
+			"case_rule":      false,
+		}
+
+		result, err := makeReconSaaSAPICall(ctx, "POST", "/v1/admin-recon-saas/rule", payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create rule %s: %v", ruleNames[i], err)
+		}
+
+		var ruleID string
+		if id, ok := result["id"].(string); ok {
+			ruleID = id
+		} else {
+			ruleID = fmt.Sprintf("mock_rule_%d_%d", time.Now().Unix(), i)
+		}
+
+		results[ruleNames[i]] = map[string]interface{}{
+			"rule_id":          ruleID,
+			"name":             rule["name"],
+			"expression":       rule["expression"],
+			"recon_state_id":   rule["recon_state_id"],
+			"sources":          []string{masterSourceID1, masterSourceID2},
+			"validation_mode":  validationResult.Mode,
+			"validation_notes": validationResult.ValidationNotes,
+			"api_response":     result,
+		}
+	}
+
+	// Add validation summary to results
+	results["validation_summary"] = map[string]interface{}{
+		"mode":              validationResult.Mode,
+		"approved":          validationResult.Approved,
+		"requires_approval": validationResult.RequiresApproval,
+		"validation_notes":  validationResult.ValidationNotes,
+		"rule_expressions":  validationResult.RuleExpressions,
+	}
+
+	return results, nil
+}
+
 // createLookup creates a lookup configuration via recon-saas API
 func createLookup(ctx context.Context, merchantID, source1Name, source2Name string) (string, error) {
 	payload := map[string]interface{}{
@@ -733,11 +1082,82 @@ func createLookup(ctx context.Context, merchantID, source1Name, source2Name stri
 }
 
 // createMasterReconProcess creates a master reconciliation process via recon-saas API
-func createMasterReconProcess(ctx context.Context, source1Name, source2Name, lookupID, masterSourceID1, masterSourceID2 string, ruleIDs []string) (string, error) {
+func createMasterReconProcess(ctx context.Context, source1Name, source2Name, lookupID, masterSourceID1, masterSourceID2 string, ruleIDs []string, source1Columns, source2Columns, source1EntityID, source2EntityID, source1Amount, source2Amount string) (string, error) {
 	processName := fmt.Sprintf("%s to %s Reconciliation", source1Name, source2Name)
 	productID := fmt.Sprintf("%s_%s",
 		strings.ToUpper(strings.ReplaceAll(source1Name[:3], " ", "")),
 		strings.ToUpper(strings.ReplaceAll(source2Name[:3], " ", "")))
+
+	// Parse column arrays
+	var columns1, columns2 []string
+	if err := json.Unmarshal([]byte(source1Columns), &columns1); err != nil {
+		return "", fmt.Errorf("invalid source1_columns JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(source2Columns), &columns2); err != nil {
+		return "", fmt.Errorf("invalid source2_columns JSON: %v", err)
+	}
+
+	// Generate frontend columns (union of all columns from both files)
+	frontendCols := make([]string, 0)
+	seenColumns := make(map[string]bool)
+
+	// Add columns from source 1
+	for _, col := range columns1 {
+		if !seenColumns[col] {
+			frontendCols = append(frontendCols, col)
+			seenColumns[col] = true
+		}
+	}
+
+	// Add columns from source 2
+	for _, col := range columns2 {
+		if !seenColumns[col] {
+			frontendCols = append(frontendCols, col)
+			seenColumns[col] = true
+		}
+	}
+
+	// Generate column mappings for source 1
+	source1ColumnMap := make([]map[string]string, 0)
+	for _, col := range columns1 {
+		var destination string
+		switch col {
+		case source1EntityID:
+			destination = "EntityID"
+		case source1Amount:
+			destination = "Amount"
+		default:
+			// Convert to snake_case
+			destination = strings.ToLower(strings.ReplaceAll(col, " ", "_"))
+			destination = strings.ReplaceAll(destination, "-", "_")
+		}
+
+		source1ColumnMap = append(source1ColumnMap, map[string]string{
+			"report_column": col,
+			"source_column": destination,
+		})
+	}
+
+	// Generate column mappings for source 2
+	source2ColumnMap := make([]map[string]string, 0)
+	for _, col := range columns2 {
+		var destination string
+		switch col {
+		case source2EntityID:
+			destination = "EntityID"
+		case source2Amount:
+			destination = "Amount"
+		default:
+			// Convert to snake_case
+			destination = strings.ToLower(strings.ReplaceAll(col, " ", "_"))
+			destination = strings.ReplaceAll(destination, "-", "_")
+		}
+
+		source2ColumnMap = append(source2ColumnMap, map[string]string{
+			"report_column": col,
+			"source_column": destination,
+		})
+	}
 
 	payload := map[string]interface{}{
 		"name":       processName,
@@ -757,32 +1177,14 @@ func createMasterReconProcess(ctx context.Context, source1Name, source2Name, loo
 		"sources":  []string{masterSourceID1, masterSourceID2},
 		"sequence": []interface{}{},
 		"report_config": map[string]interface{}{
-			"frontend_cols": []string{
-				"Store No_", "Date", "Receipt No_", "NetAmount", "GrossAmount", "Instance ID", "Order Taker",
-				"Transaction ID", "Amount", "Description", "Balance", "Reference",
-			},
+			"frontend_cols": frontendCols,
 			"source_report_config": []map[string]interface{}{
 				{
-					"column_map": []map[string]string{
-						{"report_column": "Store No_", "source_column": "store_no"},
-						{"report_column": "Date", "source_column": "date"},
-						{"report_column": "Receipt No_", "source_column": "receipt_no"},
-						{"report_column": "NetAmount", "source_column": "Amount"},
-						{"report_column": "GrossAmount", "source_column": "grossamount"},
-						{"report_column": "Instance ID", "source_column": "EntityID"},
-						{"report_column": "Order Taker", "source_column": "order_taker"},
-					},
+					"column_map":       source1ColumnMap,
 					"master_source_id": masterSourceID1,
 				},
 				{
-					"column_map": []map[string]string{
-						{"report_column": "Transaction ID", "source_column": "EntityID"},
-						{"report_column": "Date", "source_column": "date"},
-						{"report_column": "Amount", "source_column": "Amount"},
-						{"report_column": "Description", "source_column": "description"},
-						{"report_column": "Balance", "source_column": "balance"},
-						{"report_column": "Reference", "source_column": "reference"},
-					},
+					"column_map":       source2ColumnMap,
 					"master_source_id": masterSourceID2,
 				},
 			},
