@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"tutorial/mcp"
+	"reconsaas/mcp"
 
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -28,7 +28,7 @@ func main() {
 	defer stop()
 
 	mcpServer := server.NewMCPServer(
-		"tutorial-mcp-server",
+		"reconsaas-mcp-server",
 		version,
 		server.WithLogging(),
 		server.WithToolCapabilities(true),
@@ -70,11 +70,11 @@ func main() {
 		errChan <- stdioServer.Listen(ctx, os.Stdin, os.Stdout)
 	}()
 
-	logger.Info("Tutorial MCP Server started", "version", version, "transport", "stdio")
+	logger.Info("ReconSaas MCP Server started", "version", version, "transport", "stdio")
 
 	select {
 	case <-ctx.Done():
-		logger.Info("Tutorial MCP Server stopped")
+		logger.Info("ReconSaas MCP Server stopped")
 	case err := <-errChan:
 		if err != nil {
 			logger.Error("Server error", "error", err)
