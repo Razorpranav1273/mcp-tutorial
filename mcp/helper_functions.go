@@ -744,7 +744,7 @@ func createMasterSource(ctx context.Context, name, columnsJSON, entityIDColumn, 
 		"name": name,
 		"config": map[string]interface{}{
 			"is_internal":       false,
-			"unique_keys":       []string{entityIDColumn},
+			"unique_keys":       []string{"EntityID"},
 			"allow_upload":      false,
 			"ingest_to_db":      true,
 			"skip_top_rows":     0,
