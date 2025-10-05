@@ -845,7 +845,7 @@ Upon successful completion, the merchant onboarding process will be complete and
 - Dashboard monitoring and reporting
 - Scheduling and alerting configuration
 
-Execute all API calls sequentially, capture all response IDs, and provide comprehensive completion summary.`, lookupStrategy, processType, reportingConfig, lookupStrategy, reportingConfig, reportingConfig)
+Execute all API calls sequentially, capture all response IDs, and provide comprehensive completion summary.`, lookupStrategy, processType, reportingConfig, lookupStrategy, reportingConfig)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -856,6 +856,380 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 
 		return mcp.NewGetPromptResult(
 			fmt.Sprintf("Recon-SaaS Process Setup: %s (%s lookup, %s reporting)", processType, lookupStrategy, reportingConfig),
+			messages,
+		), nil
+	}
+
+	return server.ServerPrompt{
+		Prompt:  prompt,
+		Handler: handler,
+	}
+}
+
+// ReconDataExtractionPrompt guides users through CSV data extraction using pattern matching
+func ReconDataExtractionPrompt() server.ServerPrompt {
+	prompt := mcp.NewPrompt("recon_data_extraction",
+		mcp.WithPromptDescription("Expert guidance for extracting specific patterns from CSV column data. Helps you transform data like 'abc123xyz' → '123' using intelligent pattern matching."),
+		mcp.WithArgument("file_path",
+			mcp.ArgumentDescription("Full path to the CSV file you want to process (e.g., '/Users/pranav.desai/Downloads/consolidated.csv')"),
+		),
+		mcp.WithArgument("column_name",
+			mcp.ArgumentDescription("Name of the column containing data to extract from (e.g., 'paymentid', 'transaction_id', 'reference_number')"),
+		),
+		mcp.WithArgument("data_example",
+			mcp.ArgumentDescription("Example of your current data format (e.g., 'abc123xyz', 'TXN-456-REF', 'USER_789_ID')"),
+		),
+		mcp.WithArgument("extraction_goal",
+			mcp.ArgumentDescription("What you want to extract from the data (e.g., '123', '456', '789')"),
+		),
+		mcp.WithArgument("complexity_level",
+			mcp.ArgumentDescription("Your experience level with data extraction (beginner, intermediate, advanced)"),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		filePath := "/Users/pranav.desai/Downloads/consolidated.csv"
+		if fp, exists := request.Params.Arguments["file_path"]; exists && fp != "" {
+			filePath = fp
+		}
+
+		columnName := "paymentid"
+		if cn, exists := request.Params.Arguments["column_name"]; exists && cn != "" {
+			columnName = cn
+		}
+
+		dataExample := "abc123xyz"
+		if de, exists := request.Params.Arguments["data_example"]; exists && de != "" {
+			dataExample = de
+		}
+
+		extractionGoal := "123"
+		if eg, exists := request.Params.Arguments["extraction_goal"]; exists && eg != "" {
+			extractionGoal = eg
+		}
+
+		complexityLevel := "beginner"
+		if cl, exists := request.Params.Arguments["complexity_level"]; exists && cl != "" {
+			complexityLevel = cl
+		}
+
+		elaboratePrompt := fmt.Sprintf(`You are an expert data extraction specialist helping users extract specific patterns from CSV data. Based on the user's file "%s" column "%s", with example "%s" and goal to extract "%s", provide comprehensive step-by-step guidance.
+
+**🎯 4-STEP EXTRACTION WORKFLOW:**
+
+**STEP 1: PROVIDE FILE PATH (Required First)**
+- Question: "What is the full path to your CSV file?"
+- Your File Path: %s
+- Verify the file exists and is accessible
+
+**STEP 2: IDENTIFY COLUMN (Required Second)**  
+- Question: "Which column contains the data you want to extract from?"
+- Your Column: %s
+- Check that this column exists in your CSV file
+
+**STEP 3: DEFINE EXTRACTION & TRANSFORMATION (Required Third)**
+- What does your current data look like? Source example: "%s"
+- What do you want to extract from it? Target: "%s"  
+- Verify the target pattern appears in your source data
+
+**STEP 4: GENERATE FINAL OUTPUT (Automatic Fourth)**
+- Tool processes your file with the extraction pattern
+- Creates new CSV with extracted data
+- Provides success rate and sample results
+
+**🛠️ TOOL USAGE INSTRUCTIONS:**
+
+For the recon_data_extraction tool, use these exact parameters:
+
+{
+  "file_path": "%s",
+  "column_name": "%s",
+  "source_example": "%s",
+  "target_extract": "%s",
+  "save_to_file": true
+}
+
+**🎯 Ready for Data Transformation:**
+Your exact match extraction will only transform data that matches your specific example!
+
+Focus on practical, working solutions for transforming "%s" → "%s" in your CSV data processing workflow.`,
+			filePath, columnName, dataExample, extractionGoal,
+			filePath, columnName, dataExample, extractionGoal,
+			filePath, columnName, dataExample, extractionGoal,
+			dataExample, extractionGoal)
+
+		messages := []mcp.PromptMessage{
+			mcp.NewPromptMessage(
+				mcp.RoleUser,
+				mcp.NewTextContent(elaboratePrompt),
+			),
+		}
+
+		return mcp.NewGetPromptResult(
+			fmt.Sprintf("Data Extraction Guide: File '%s' Column '%s' Transform '%s' → '%s' (%s level)", filePath, columnName, dataExample, extractionGoal, complexityLevel),
+			messages,
+		), nil
+	}
+
+	return server.ServerPrompt{
+		Prompt:  prompt,
+		Handler: handler,
+	}
+}
+
+// ReconCombinedEntityPrompt guides users through creating composite entity IDs for reconciliation
+func ReconCombinedEntityPrompt() server.ServerPrompt {
+	prompt := mcp.NewPrompt("recon_combined_entity",
+		mcp.WithPromptDescription("Smart guidance for creating combined entity IDs when your reconciliation files lack unique keys. Perfect for cases where you need mid+tid+amount+date as composite identifier."),
+		mcp.WithArgument("file_path",
+			mcp.ArgumentDescription("Full path to the CSV file that needs a combined entity ID (e.g., '/Users/pranav.desai/Downloads/transactions.csv')"),
+		),
+		mcp.WithArgument("columns_needed",
+			mcp.ArgumentDescription("Columns you want to combine for entity ID (e.g., 'mid,tid,amount,date')"),
+		),
+		mcp.WithArgument("reconciliation_context",
+			mcp.ArgumentDescription("Why you need combined entity ID (e.g., 'files have no common unique key', 'multiple files to reconcile')"),
+		),
+		mcp.WithArgument("complexity_level",
+			mcp.ArgumentDescription("Your experience level with reconciliation (beginner, intermediate, advanced)"),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		filePath := "/Users/pranav.desai/Downloads/transactions.csv"
+		if fp, exists := request.Params.Arguments["file_path"]; exists && fp != "" {
+			filePath = fp
+		}
+
+		columnsNeeded := "mid,tid,amount,date"
+		if cn, exists := request.Params.Arguments["columns_needed"]; exists && cn != "" {
+			columnsNeeded = cn
+		}
+
+		reconContext := "files have no common unique key"
+		if rc, exists := request.Params.Arguments["reconciliation_context"]; exists && rc != "" {
+			reconContext = rc
+		}
+
+		complexityLevel := "beginner"
+		if cl, exists := request.Params.Arguments["complexity_level"]; exists && cl != "" {
+			complexityLevel = cl
+		}
+
+		elaboratePrompt := fmt.Sprintf(`You are an expert reconciliation specialist helping users create combined entity IDs when their files lack unique reconciliation keys. Based on the user's file "%s" with columns "%s" for reconciliation context: "%s", provide comprehensive guidance.
+
+**🚨 RECONCILIATION PROBLEM ASSESSMENT:**
+
+**Hey! 👋 Do you want to create a combined entity column as entity key?**
+
+**Problem:** Your files don't have a unique reconciliation key (like RRN, transaction_id, etc.)
+**Solution:** Combine multiple columns to create a composite entity identifier
+
+**Why This Helps:**
+- Creates unique keys for matching records between files
+- Enables reconciliation when no single column is unique
+- Improves matching accuracy with multiple data points
+- Standard practice in financial reconciliation
+
+**🔧 COMBINED ENTITY STRATEGY:**
+
+**For Your Columns:** %s
+
+**Recommended Approach:**
+- **Combine these columns:** %s
+- **Suggested separator:** "_" (underscore) 
+- **Example result:** mid_123 + tid_456 + amount_100.50 + date_2023-09-25 = "123_456_100.50_2023-09-25"
+
+**🛠️ TOOL USAGE INSTRUCTIONS:**
+
+For the recon_combined_entity tool, use these exact parameters:
+
+{
+  "file_path": "%s",
+  "columns_to_combine": "%s",
+  "separator": "_",
+  "entity_column_name": "combined_entity_id",
+  "save_to_file": true
+}
+
+**🎯 Ready for Reconciliation:**
+With combined entity IDs, you can now successfully reconcile files that previously couldn't be matched due to missing unique keys!
+
+Focus on creating robust, unique entity identifiers that will enable successful reconciliation between your files.`,
+			filePath, columnsNeeded, reconContext,
+			columnsNeeded, columnsNeeded,
+			filePath, columnsNeeded)
+
+		messages := []mcp.PromptMessage{
+			mcp.NewPromptMessage(
+				mcp.RoleUser,
+				mcp.NewTextContent(elaboratePrompt),
+			),
+		}
+
+		return mcp.NewGetPromptResult(
+			fmt.Sprintf("Combined Entity ID Guide: File '%s' Columns '%s' (%s level)", filePath, columnsNeeded, complexityLevel),
+			messages,
+		), nil
+	}
+
+	return server.ServerPrompt{
+		Prompt:  prompt,
+		Handler: handler,
+	}
+}
+
+// ReconAggregationPrompt guides users through applying aggregation logic to reconciliation data
+func ReconAggregationPrompt() server.ServerPrompt {
+	prompt := mcp.NewPrompt("recon_aggregation",
+		mcp.WithPromptDescription("Expert guidance for applying aggregation logic to reconciliation data with duplicate handling. Perfect for cases where UTR1 appears multiple times and needs to be aggregated using SUM, AVG, COUNT, MIN, or MAX."),
+		mcp.WithArgument("file_path",
+			mcp.ArgumentDescription("Full path to the CSV file that needs aggregation processing (e.g., '/Users/pranav.desai/Downloads/transactions.csv')"),
+		),
+		mcp.WithArgument("group_by_column",
+			mcp.ArgumentDescription("Column name to group by for duplicates (e.g., 'UTR', 'transaction_id', 'reference_number')"),
+		),
+		mcp.WithArgument("aggregate_column",
+			mcp.ArgumentDescription("Column name containing values to aggregate (e.g., 'amount', 'txn_amount', 'value')"),
+		),
+		mcp.WithArgument("aggregation_function",
+			mcp.ArgumentDescription("Aggregation function to apply (SUM, AVG, COUNT, MIN, MAX)"),
+		),
+		mcp.WithArgument("complexity_level",
+			mcp.ArgumentDescription("Your experience level with data aggregation (beginner, intermediate, advanced)"),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		filePath := "/Users/pranav.desai/Downloads/transactions.csv"
+		if fp, exists := request.Params.Arguments["file_path"]; exists && fp != "" {
+			filePath = fp
+		}
+
+		groupByColumn := "UTR"
+		if gbc, exists := request.Params.Arguments["group_by_column"]; exists && gbc != "" {
+			groupByColumn = gbc
+		}
+
+		aggregateColumn := "amount"
+		if ac, exists := request.Params.Arguments["aggregate_column"]; exists && ac != "" {
+			aggregateColumn = ac
+		}
+
+		aggregationFunction := "SUM"
+		if af, exists := request.Params.Arguments["aggregation_function"]; exists && af != "" {
+			aggregationFunction = af
+		}
+
+		complexityLevel := "beginner"
+		if cl, exists := request.Params.Arguments["complexity_level"]; exists && cl != "" {
+			complexityLevel = cl
+		}
+
+		elaboratePrompt := fmt.Sprintf(`You are an expert reconciliation specialist helping users apply aggregation logic to handle duplicate records in reconciliation data. Based on the user's file "%s" with grouping column "%s" and aggregation column "%s" using "%s" function, provide comprehensive guidance.
+
+**🚨 DUPLICATE RECORDS PROBLEM:**
+
+**Hey! 👋 Need to handle duplicate records with aggregation logic?**
+
+**Problem:** Your data has duplicate entries that need to be consolidated
+**Example:** UTR1 appears in multiple rows: 100rs + 200rs = needs to become 300rs total
+**Solution:** Apply aggregation logic using patch methodology
+
+**Why Aggregation Helps:**
+- Consolidates duplicate records into single entries
+- Maintains data integrity during reconciliation
+- Reduces processing complexity and improves accuracy
+- Standard practice in financial data processing
+
+**🔧 AGGREGATION STRATEGY:**
+
+**Your Configuration:**
+- **Group By Column:** %s (finds duplicate records)  
+- **Aggregate Column:** %s (values to process)
+- **Aggregation Function:** %s (how to combine values)
+
+**Example Scenario:**
+
+Before Aggregation:
+UTR1 | 100
+UTR1 | 200  
+UTR2 | 500
+
+After %s Aggregation:
+UTR1 | 300  (100 + 200)
+UTR2 | 500  (no duplicates)
+
+**📊 AVAILABLE AGGREGATION FUNCTIONS:**
+
+**🧮 SUM()** - Add all duplicate values together
+- Use Case: Total amounts, cumulative transactions
+- Example: 100 + 200 + 50 = 350
+
+**📈 AVG()** - Calculate average of duplicate values  
+- Use Case: Average transaction amounts, mean values
+- Example: (100 + 200 + 300) / 3 = 200
+
+**📏 COUNT()** - Count number of duplicate entries
+- Use Case: Transaction frequency, occurrence tracking
+- Example: 3 entries = COUNT = 3
+
+**📉 MIN()** - Find minimum value among duplicates
+- Use Case: Lowest amount, earliest time
+- Example: MIN(100, 200, 50) = 50
+
+**📊 MAX()** - Find maximum value among duplicates  
+- Use Case: Highest amount, latest time
+- Example: MAX(100, 200, 50) = 200
+
+**🛠️ TOOL USAGE INSTRUCTIONS:**
+
+For the recon_aggregation tool, use these exact parameters:
+
+{
+  "file_path": "%s",
+  "group_by_column": "%s", 
+  "aggregate_column": "%s",
+  "aggregation_function": "%s",
+  "enable_aggregation": true,
+  "save_to_file": true
+}
+
+**🔍 ANALYSIS MODE (Optional):**
+Set "enable_aggregation": false to first analyze your data and see duplicate patterns before applying aggregation.
+
+**🎯 RECONCILIATION BENEFITS:**
+
+✅ **Duplicate Resolution**: Eliminates duplicate record conflicts
+✅ **Data Consistency**: Creates clean, consolidated dataset
+✅ **Processing Efficiency**: Reduces data volume and complexity  
+✅ **Accuracy Improvement**: Single source of truth per entity
+✅ **Reconciliation Ready**: Prepared for successful matching
+
+**💡 Best Practices:**
+1. **Analyze First**: Run with enable_aggregation=false to review duplicates
+2. **Choose Function Carefully**: Select appropriate aggregation logic for your use case
+3. **Verify Results**: Check sample aggregations before full processing
+4. **Backup Data**: Keep original file before aggregation
+
+**🚀 Ready for Duplicate Handling:**
+Transform your messy duplicate data into clean, aggregated records perfect for reconciliation processing!
+
+Focus on creating robust, aggregated data that eliminates duplicate-related reconciliation issues.`,
+			filePath, groupByColumn, aggregateColumn, aggregationFunction, // 4: main intro
+			groupByColumn, aggregateColumn, aggregationFunction, // 7: configuration section
+			aggregationFunction,                                           // 8: example scenario
+			filePath, groupByColumn, aggregateColumn, aggregationFunction) // 12: tool instructions
+
+		messages := []mcp.PromptMessage{
+			mcp.NewPromptMessage(
+				mcp.RoleUser,
+				mcp.NewTextContent(elaboratePrompt),
+			),
+		}
+
+		return mcp.NewGetPromptResult(
+			fmt.Sprintf("Aggregation Logic Guide: File '%s' Group '%s' Aggregate '%s' Function '%s' (%s level)", filePath, groupByColumn, aggregateColumn, aggregationFunction, complexityLevel),
 			messages,
 		), nil
 	}

@@ -48,6 +48,9 @@ func main() {
 		mcp.CalculatorTool(),
 		mcp.SystemInfoTool(),
 		// Recon-SaaS tools
+		mcp.ReconDataExtractionTool(),
+		mcp.ReconCombinedEntityTool(),
+		mcp.ReconAggregationTool(),
 		mcp.ReconFileAnalysisTool(),
 		mcp.ReconMasterSourceTool(),
 		mcp.ReconMerchantSourceTool(),
@@ -59,6 +62,9 @@ func main() {
 		mcp.MathTutorPrompt(),
 		mcp.CodeReviewPrompt(),
 		// Recon-SaaS prompts
+		mcp.ReconDataExtractionPrompt(),
+		mcp.ReconCombinedEntityPrompt(),
+		mcp.ReconAggregationPrompt(),
 		mcp.ReconFileAnalysisPrompt(),
 		mcp.ReconMasterSourcePrompt(),
 		mcp.ReconMerchantSourcePrompt(),
@@ -66,10 +72,11 @@ func main() {
 		mcp.ReconProcessSetupPrompt(),
 	)
 
-	mcpServer.AddResources(
-		mcp.SystemStatusResource(),
-		mcp.MathConstantsResource(),
-	)
+	// Note: Resources are currently disabled as they are not implemented
+	// mcpServer.AddResources(
+	// 	mcp.SystemStatusResource(),
+	// 	mcp.MathConstantsResource(),
+	// )
 
 	httpServer := server.NewStreamableHTTPServer(
 		mcpServer,
