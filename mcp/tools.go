@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -640,244 +641,181 @@ func ReconProcessSetupTool() server.ServerTool {
 	}
 }
 
-// ReconDataExtractionTool allows users to extract specific patterns from CSV column data
+// ReconDataExtractionTool creates and applies regex-based data extraction configurations
 func ReconDataExtractionTool() server.ServerTool {
 	tool := mcp.NewTool("recon_data_extraction",
-		mcp.WithDescription("Extract specific patterns from CSV column data. Step-by-step: 1) Provide file path 2) Choose column 3) Define extraction pattern (e.g., extract '123' from 'abc123xyz')"),
-		mcp.WithString("file_path",
-			mcp.Description("Step 1: Full path to the CSV file to process"),
+		mcp.WithDescription("Create and apply regex-based data extraction configurations for reconciliation sources. Stores extraction configs in database and applies them to sources via API calls."),
+		mcp.WithString("merchant_id",
+			mcp.Description("Merchant identifier for this extraction process"),
+			mcp.Required(),
+		),
+		mcp.WithString("source_id",
+			mcp.Description("Source ID to apply extraction to (from previous master/merchant source creation)"),
 			mcp.Required(),
 		),
 		mcp.WithString("column_name",
-			mcp.Description("Step 2: Name of the column containing data to extract from"),
+			mcp.Description("Name of the column containing data to extract from"),
 			mcp.Required(),
 		),
-		mcp.WithString("source_example",
-			mcp.Description("Step 3a: Example of your current data format (e.g., 'abc123xyz')"),
+		mcp.WithString("extraction_goal",
+			mcp.Description("What specific data do you want to extract? (e.g., 'transaction numbers', 'reference codes', 'UTR numbers', 'amount values')"),
 			mcp.Required(),
 		),
-		mcp.WithString("target_extract",
-			mcp.Description("Step 3b: What you want to extract from the source (e.g., '123' from 'abc123xyz')"),
+		mcp.WithString("sample_data",
+			mcp.Description("Sample data from the column to help create regex patterns (e.g., 'TXN-001-ABC, REF-003-GHI, UTR123456')"),
 			mcp.Required(),
 		),
-		mcp.WithString("new_column_name",
-			mcp.Description("Name for the new column containing extracted data"),
-			mcp.DefaultString("extracted_data"),
+		mcp.WithString("extraction_config",
+			mcp.Description("JSON configuration for extraction logic. If not provided, will be generated based on extraction_goal and sample_data"),
 		),
-		mcp.WithBoolean("save_to_file",
-			mcp.Description("Whether to save results to a new CSV file"),
+		mcp.WithString("extraction_name",
+			mcp.Description("Name for this extraction configuration"),
+			mcp.DefaultString("regex_extraction"),
+		),
+		mcp.WithBoolean("apply_immediately",
+			mcp.Description("Whether to apply extraction immediately to the source"),
 			mcp.DefaultString("true"),
-		),
-		mcp.WithString("output_file_path",
-			mcp.Description("Path for the output file (if save_to_file is true)"),
 		),
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Get required parameters
-		filePath, err := request.RequireString("file_path")
+		merchantID, err := request.RequireString("merchant_id")
 		if err != nil {
-			return mcp.NewToolResultError("Step 1 - File Path Required: " + err.Error()), nil
+			return mcp.NewToolResultError("Merchant ID Required: " + err.Error()), nil
+		}
+
+		sourceID, err := request.RequireString("source_id")
+		if err != nil {
+			return mcp.NewToolResultError("Source ID Required: " + err.Error()), nil
 		}
 
 		columnName, err := request.RequireString("column_name")
 		if err != nil {
-			return mcp.NewToolResultError("Step 2 - Column Name Required: " + err.Error()), nil
+			return mcp.NewToolResultError("Column Name Required: " + err.Error()), nil
 		}
 
-		sourceExample, err := request.RequireString("source_example")
+		extractionGoal, err := request.RequireString("extraction_goal")
 		if err != nil {
-			return mcp.NewToolResultError("Step 3a - Source Example Required: " + err.Error()), nil
+			return mcp.NewToolResultError("Extraction Goal Required: " + err.Error()), nil
 		}
 
-		targetExtract, err := request.RequireString("target_extract")
+		sampleData, err := request.RequireString("sample_data")
 		if err != nil {
-			return mcp.NewToolResultError("Step 3b - Target Extract Required: " + err.Error()), nil
+			return mcp.NewToolResultError("Sample Data Required: " + err.Error()), nil
 		}
 
 		// Optional parameters
-		newColumnName := request.GetString("new_column_name", "extracted_data")
-		saveToFile := request.GetBool("save_to_file", true)
-		outputFilePath := request.GetString("output_file_path", "")
+		extractionConfigStr := request.GetString("extraction_config", "")
+		extractionName := request.GetString("extraction_name", "regex_extraction")
+		applyImmediately := request.GetBool("apply_immediately", true)
 
-		// Check if file exists
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			return mcp.NewToolResultError(fmt.Sprintf("File not found: %s", filePath)), nil
+		// Generate extraction config if not provided
+		if extractionConfigStr == "" {
+			extractionConfigStr = generateExtractionConfig(extractionGoal, sampleData)
 		}
 
-		// Process the CSV file
-		file, err := os.Open(filePath)
+		// Parse extraction config for display
+		var config ExtractionConfig
+		if err := json.Unmarshal([]byte(extractionConfigStr), &config); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid extraction config JSON: %v", err)), nil
+		}
+
+		// Create extraction configuration in database
+		extractionConfigID, err := createExtractionConfig(ctx, merchantID, sourceID, columnName, extractionConfigStr)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Error opening file: %v", err)), nil
-		}
-		defer file.Close()
-
-		reader := csv.NewReader(file)
-		records, err := reader.ReadAll()
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Error reading CSV: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to create extraction config: %v", err)), nil
 		}
 
-		if len(records) == 0 {
-			return mcp.NewToolResultError("CSV file is empty"), nil
-		}
-
-		// Find column index
-		headers := records[0]
-		columnIndex := -1
-		for i, header := range headers {
-			if header == columnName {
-				columnIndex = i
-				break
-			}
-		}
-
-		if columnIndex == -1 {
-			return mcp.NewToolResultError(fmt.Sprintf("Column '%s' not found. Available columns: %v", columnName, headers)), nil
-		}
-
-		// Process extraction - ONLY transform exact matches
-		var results [][]string
-		var extractionStats struct {
-			totalRows       int
-			matchedRows     int
-			transformedRows int
-			sampleMatches   []string
-		}
-
-		// Prepare headers - add new column
-		newHeaders := append(headers, newColumnName)
-		results = append(results, newHeaders)
-
-		// Process each data row
-		for i := 1; i < len(records); i++ {
-			row := records[i]
-			extractionStats.totalRows++
-
-			if columnIndex >= len(row) {
-				// Column doesn't exist in this row
-				newRow := append(row, "")
-				results = append(results, newRow)
-				continue
-			}
-
-			originalValue := row[columnIndex]
-			extractedValue := ""
-			newOriginalValue := originalValue // Keep original by default
-
-			// ONLY transform if it exactly matches the source example
-			if originalValue == sourceExample {
-				extractedValue = targetExtract
-				newOriginalValue = targetExtract // Update original column
-				extractionStats.transformedRows++
-
-				// Store sample for reporting
-				if len(extractionStats.sampleMatches) < 5 {
-					extractionStats.sampleMatches = append(extractionStats.sampleMatches,
-						fmt.Sprintf("'%s' → '%s'", originalValue, targetExtract))
-				}
-			}
-
-			// Create new row with updated original column and new extract column
-			newRow := make([]string, len(row))
-			copy(newRow, row)
-			newRow[columnIndex] = newOriginalValue  // Update original column
-			newRow = append(newRow, extractedValue) // Add new extracted column
-			results = append(results, newRow)
-		}
-
-		// Generate output file path if not provided
-		if saveToFile && outputFilePath == "" {
-			dir := filepath.Dir(filePath)
-			base := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-			outputFilePath = filepath.Join(dir, fmt.Sprintf("%s_extracted.csv", base))
-		}
-
-		// Save to file if requested
-		if saveToFile {
-			outputFile, err := os.Create(outputFilePath)
+		// Apply extraction to source if requested
+		var stats map[string]interface{}
+		if applyImmediately {
+			stats, err = applyExtractionToSource(ctx, merchantID, sourceID, extractionConfigID)
 			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Error creating output file: %v", err)), nil
-			}
-			defer outputFile.Close()
-
-			writer := csv.NewWriter(outputFile)
-			defer writer.Flush()
-
-			for _, record := range results {
-				if err := writer.Write(record); err != nil {
-					return mcp.NewToolResultError(fmt.Sprintf("Error writing to output file: %v", err)), nil
-				}
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to apply extraction: %v", err)), nil
 			}
 		}
 
-		// Format complete data for display (first 10 rows)
-		headersDisplay := strings.Join(results[0], " | ")
-		var dataRowsDisplay []string
-		maxDisplayRows := 10
-		if len(results)-1 < maxDisplayRows {
-			maxDisplayRows = len(results) - 1
-		}
+		// Format patterns and output columns for display
+		patternsDisplay := strings.Join(config.Logic.RegexExec, ", ")
+		outputColumnsDisplay := strings.Join(config.OutputColumns, ", ")
 
-		for i := 1; i <= maxDisplayRows; i++ {
-			if i < len(results) {
-				rowDisplay := fmt.Sprintf("Row %d: %s", i, strings.Join(results[i], " | "))
-				dataRowsDisplay = append(dataRowsDisplay, rowDisplay)
+		// Format result based on whether extraction was applied
+		var result string
+		if applyImmediately && stats != nil {
+			// Extract stats from API response
+			totalRows := 0
+			matchedRows := 0
+			transformedRows := 0
+
+			if total, ok := stats["total_rows"].(float64); ok {
+				totalRows = int(total)
 			}
-		}
+			if matched, ok := stats["matched_rows"].(float64); ok {
+				matchedRows = int(matched)
+			}
+			if transformed, ok := stats["transformed_rows"].(float64); ok {
+				transformedRows = int(transformed)
+			}
 
-		if len(results)-1 > maxDisplayRows {
-			dataRowsDisplay = append(dataRowsDisplay, fmt.Sprintf("... and %d more rows", len(results)-1-maxDisplayRows))
-		}
+			result = fmt.Sprintf(`🔧 **Database-Integrated Regex Extraction Complete!**
 
-		dataRowsFormatted := strings.Join(dataRowsDisplay, "\n")
+**📊 EXTRACTION CONFIGURATION:**
+- **Merchant ID**: %s
+- **Source ID**: %s
+- **Column**: %s
+- **Extraction Goal**: %s
+- **Sample Data**: %s
+- **Extraction Name**: %s
+- **Config ID**: %s
 
-		result := fmt.Sprintf(`🔧 **Data Extraction Complete!**
-
-**📁 Source File:** %s
-**📊 Column Processed:** %s
-**🎯 Source Pattern:** %s
-**📤 Target Extract:** %s
-
-**📈 Extraction Results:**
-- **Total Rows:** %d
-- **Exact Matches Found:** %d
-- **Rows Transformed:** %d
-- **New Column:** %s
-
-**🔍 Sample Transformations:**
+**🎯 REGEX PATTERNS APPLIED:**
 %s
 
-**📋 COMPLETE TRANSFORMED DATA:**
-
-**Headers:** %s
-
-**Data Rows:**
+**📋 OUTPUT COLUMNS:**
 %s
 
-**📁 Output File:** %s
+**📈 PROCESSING STATISTICS:**
+- **Total Rows Processed**: %d
+- **Rows Matched**: %d
+- **Rows Transformed**: %d
+- **Success Rate**: %.1f%%
 
-**💡 Transformation Summary:**
-- Only transformed exact matches of '%s' → '%s'
-- All other data left unchanged
-- %d rows processed successfully
-`,
-			filepath.Base(filePath),
-			columnName,
-			sourceExample,
-			targetExtract,
-			extractionStats.totalRows,
-			extractionStats.transformedRows,
-			extractionStats.transformedRows,
-			newColumnName,
-			strings.Join(extractionStats.sampleMatches, "\n"),
-			headersDisplay,
-			dataRowsFormatted,
-			outputFilePath,
-			sourceExample,
-			targetExtract,
-			extractionStats.totalRows,
-		)
+**✅ EXTRACTION APPLIED TO DATABASE:**
+Your extraction configuration has been stored in the recon-saas database and applied to your source data. The extracted values are now available for reconciliation processing.
+
+**🔄 NEXT STEPS:**
+The extracted data is ready for reconciliation workflows and can be used in subsequent reconciliation processes.`,
+				merchantID, sourceID, columnName, extractionGoal, sampleData, extractionName, extractionConfigID,
+				patternsDisplay, outputColumnsDisplay,
+				totalRows, matchedRows, transformedRows,
+				float64(matchedRows)/float64(totalRows)*100)
+		} else {
+			result = fmt.Sprintf(`🔧 **Extraction Configuration Created!**
+
+**📊 EXTRACTION CONFIGURATION:**
+- **Merchant ID**: %s
+- **Source ID**: %s
+- **Column**: %s
+- **Extraction Goal**: %s
+- **Sample Data**: %s
+- **Extraction Name**: %s
+- **Config ID**: %s
+
+**🎯 REGEX PATTERNS:**
+%s
+
+**📋 OUTPUT COLUMNS:**
+%s
+
+**⏳ CONFIGURATION STORED:**
+Your extraction configuration has been stored in the recon-saas database but not yet applied to the source data.
+
+**🔄 TO APPLY EXTRACTION:**
+Set "apply_immediately": true to apply the extraction to your source data.`,
+				merchantID, sourceID, columnName, extractionGoal, sampleData, extractionName, extractionConfigID,
+				patternsDisplay, outputColumnsDisplay)
+		}
 
 		return mcp.NewToolResultText(result), nil
 	}

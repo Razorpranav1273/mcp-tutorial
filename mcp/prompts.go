@@ -866,31 +866,36 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 	}
 }
 
-// ReconDataExtractionPrompt guides users through CSV data extraction using pattern matching
+// ReconDataExtractionPrompt guides users through CSV data extraction using regex patterns
 func ReconDataExtractionPrompt() server.ServerPrompt {
 	prompt := mcp.NewPrompt("recon_data_extraction",
-		mcp.WithPromptDescription("Expert guidance for extracting specific patterns from CSV column data. Helps you transform data like 'abc123xyz' → '123' using intelligent pattern matching."),
-		mcp.WithArgument("file_path",
-			mcp.ArgumentDescription("Full path to the CSV file you want to process (e.g., '/Users/pranav.desai/Downloads/consolidated.csv')"),
+		mcp.WithPromptDescription("Expert guidance for extracting specific patterns from CSV column data using regex patterns and configuration-based processing. Supports multiple patterns, capture groups, and flexible output strategies."),
+		mcp.WithArgument("merchant_id",
+			mcp.ArgumentDescription("Merchant identifier for this extraction process (e.g., 'MERCHANT_123')"),
+		),
+		mcp.WithArgument("source_id",
+			mcp.ArgumentDescription("Source ID to apply extraction to (from previous master/merchant source creation)"),
 		),
 		mcp.WithArgument("column_name",
 			mcp.ArgumentDescription("Name of the column containing data to extract from (e.g., 'paymentid', 'transaction_id', 'reference_number')"),
 		),
-		mcp.WithArgument("data_example",
-			mcp.ArgumentDescription("Example of your current data format (e.g., 'abc123xyz', 'TXN-456-REF', 'USER_789_ID')"),
+		mcp.WithArgument("extraction_config",
+			mcp.ArgumentDescription("JSON configuration for extraction logic with regex patterns and output columns"),
 		),
-		mcp.WithArgument("extraction_goal",
-			mcp.ArgumentDescription("What you want to extract from the data (e.g., '123', '456', '789')"),
-		),
-		mcp.WithArgument("complexity_level",
-			mcp.ArgumentDescription("Your experience level with data extraction (beginner, intermediate, advanced)"),
+		mcp.WithArgument("extraction_name",
+			mcp.ArgumentDescription("Name for this extraction configuration"),
 		),
 	)
 
 	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		filePath := "/Users/pranav.desai/Downloads/consolidated.csv"
-		if fp, exists := request.Params.Arguments["file_path"]; exists && fp != "" {
-			filePath = fp
+		merchantID := "MERCHANT_123"
+		if mid, exists := request.Params.Arguments["merchant_id"]; exists && mid != "" {
+			merchantID = mid
+		}
+
+		sourceID := "mock_source_123"
+		if sid, exists := request.Params.Arguments["source_id"]; exists && sid != "" {
+			sourceID = sid
 		}
 
 		columnName := "paymentid"
@@ -898,65 +903,78 @@ func ReconDataExtractionPrompt() server.ServerPrompt {
 			columnName = cn
 		}
 
-		dataExample := "abc123xyz"
-		if de, exists := request.Params.Arguments["data_example"]; exists && de != "" {
-			dataExample = de
+		extractionConfig := `{"logic":{"regex_exec":["TXN-([0-9]+)-[A-Z]+","REF-([0-9]+)-[A-Z]+"]},"output_columns":["TransactionNumber"]}`
+		if ec, exists := request.Params.Arguments["extraction_config"]; exists && ec != "" {
+			extractionConfig = ec
 		}
 
-		extractionGoal := "123"
-		if eg, exists := request.Params.Arguments["extraction_goal"]; exists && eg != "" {
-			extractionGoal = eg
+		extractionName := "payment_id_extraction"
+		if en, exists := request.Params.Arguments["extraction_name"]; exists && en != "" {
+			extractionName = en
 		}
 
-		complexityLevel := "beginner"
-		if cl, exists := request.Params.Arguments["complexity_level"]; exists && cl != "" {
-			complexityLevel = cl
-		}
+		elaboratePrompt := fmt.Sprintf(`You are an expert regex data extraction specialist helping users create and apply extraction configurations for reconciliation sources. Based on the user's merchant "%s" source "%s" column "%s" with extraction config "%s", provide comprehensive step-by-step guidance.
 
-		elaboratePrompt := fmt.Sprintf(`You are an expert data extraction specialist helping users extract specific patterns from CSV data. Based on the user's file "%s" column "%s", with example "%s" and goal to extract "%s", provide comprehensive step-by-step guidance.
+**🎯 DATABASE-INTEGRATED EXTRACTION WORKFLOW:**
 
-**🎯 4-STEP EXTRACTION WORKFLOW:**
+**STEP 1: PREREQUISITES (Must Complete First)**
+- Question: "Have you completed the prerequisite reconciliation steps?"
+- Required: File analysis, master source creation, merchant source creation
+- Result: You need merchant_id and source_id from previous steps
 
-**STEP 1: PROVIDE FILE PATH (Required First)**
-- Question: "What is the full path to your CSV file?"
-- Your File Path: %s
-- Verify the file exists and is accessible
+**STEP 2: EXTRACTION CONFIGURATION (Required)**
+- Question: "What regex patterns do you want to use for extraction?"
+- Your Config: %s
+- Extraction Name: %s
+- Verify patterns match your data format
 
-**STEP 2: IDENTIFY COLUMN (Required Second)**  
-- Question: "Which column contains the data you want to extract from?"
-- Your Column: %s
-- Check that this column exists in your CSV file
+**STEP 3: DATABASE STORAGE (Automatic)**
+- Tool creates extraction configuration in recon-saas database
+- Stores regex patterns, output columns, merchant/source associations
+- Returns extraction_config_id for future reference
 
-**STEP 3: DEFINE EXTRACTION & TRANSFORMATION (Required Third)**
-- What does your current data look like? Source example: "%s"
-- What do you want to extract from it? Target: "%s"  
-- Verify the target pattern appears in your source data
-
-**STEP 4: GENERATE FINAL OUTPUT (Automatic Fourth)**
-- Tool processes your file with the extraction pattern
-- Creates new CSV with extracted data
-- Provides success rate and sample results
+**STEP 4: APPLY TO SOURCE (Automatic)**
+- Tool applies extraction to source data via API calls
+- Updates source database with extracted values
+- Provides processing statistics and success rates
 
 **🛠️ TOOL USAGE INSTRUCTIONS:**
 
 For the recon_data_extraction tool, use these exact parameters:
 
 {
-  "file_path": "%s",
+  "merchant_id": "%s",
+  "source_id": "%s",
   "column_name": "%s",
-  "source_example": "%s",
-  "target_extract": "%s",
-  "save_to_file": true
+  "extraction_config": "%s",
+  "extraction_name": "%s",
+  "apply_immediately": true
 }
 
-**🎯 Ready for Data Transformation:**
-Your exact match extraction will only transform data that matches your specific example!
+**🎯 DATABASE INTEGRATION FEATURES:**
 
-Focus on practical, working solutions for transforming "%s" → "%s" in your CSV data processing workflow.`,
-			filePath, columnName, dataExample, extractionGoal,
-			filePath, columnName, dataExample, extractionGoal,
-			filePath, columnName, dataExample, extractionGoal,
-			dataExample, extractionGoal)
+**Configuration Storage:**
+- Extraction configs stored in recon-saas database
+- Merchant-specific and source-specific configurations
+- API endpoint: /v1/admin-recon-saas/extraction/config
+
+**Data Processing:**
+- Applied directly to source data via API calls
+- No CSV files created or managed
+- Real-time processing with database updates
+
+**Regex Pattern Examples:**
+- **Transaction Numbers**: "TXN-([0-9]+)-[A-Z]+" → extracts "001" from "TXN-001-ABC"
+- **Reference Codes**: "[A-Z]+-[0-9]+-([A-Z]+)" → extracts "ABC" from "TXN-001-ABC"
+- **Mixed Patterns**: ["TXN-([0-9]+)-([A-Z]+)","REF-([0-9]+)-([A-Z]+)"] → multiple extractions
+
+**🎯 Ready for Database-Integrated Extraction:**
+Your extraction configuration will be stored in the database and applied to your source data for reconciliation processing!
+
+Focus on creating robust regex patterns that will enable successful data extraction and reconciliation.`,
+			merchantID, sourceID, columnName, extractionConfig, extractionName,
+			extractionConfig, extractionName,
+			merchantID, sourceID, columnName, extractionConfig, extractionName)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -966,7 +984,7 @@ Focus on practical, working solutions for transforming "%s" → "%s" in your CSV
 		}
 
 		return mcp.NewGetPromptResult(
-			fmt.Sprintf("Data Extraction Guide: File '%s' Column '%s' Transform '%s' → '%s' (%s level)", filePath, columnName, dataExample, extractionGoal, complexityLevel),
+			fmt.Sprintf("Database-Integrated Extraction Guide: Merchant '%s' Source '%s' Column '%s' Config '%s'", merchantID, sourceID, columnName, extractionName),
 			messages,
 		), nil
 	}
