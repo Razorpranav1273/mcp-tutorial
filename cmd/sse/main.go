@@ -83,3 +83,5 @@ func main() {
 		}
 	}
 }
+
+//checking if new or works
