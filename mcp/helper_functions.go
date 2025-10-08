@@ -1586,3 +1586,23 @@ func generateExtractionConfig(extractionGoal, sampleData string) string {
 
 	return string(configJSON)
 }
+
+// generateCombinationConfig creates a JSON configuration for entity combination
+func generateCombinationConfig(columnNames []string, separator, entityColumnName string) string {
+	config := map[string]interface{}{
+		"combination_logic": map[string]interface{}{
+			"columns_to_combine": columnNames,
+			"separator":          separator,
+			"entity_column_name": entityColumnName,
+			"enabled":            true,
+			"patch_logic":        true,
+		},
+		"processing_mode": "real_time",
+		"entity_creation": map[string]interface{}{
+			"strategy": "combine_columns",
+			"method":   "database_patch",
+		},
+	}
+	configJSON, _ := json.Marshal(config)
+	return string(configJSON)
+}

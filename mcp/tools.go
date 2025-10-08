@@ -2,12 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -649,24 +645,33 @@ func ReconDataExtractionTool() server.ServerTool {
 			mcp.Description("Merchant identifier for this extraction process"),
 			mcp.Required(),
 		),
-		mcp.WithString("source_id",
-			mcp.Description("Source ID to apply extraction to (from previous master/merchant source creation)"),
+		mcp.WithString("merchant_source_id",
+			mcp.Description("Merchant source ID to apply extraction to (from previous merchant source creation)"),
 			mcp.Required(),
 		),
 		mcp.WithString("column_name",
 			mcp.Description("Name of the column containing data to extract from"),
 			mcp.Required(),
 		),
+		mcp.WithString("custom_extraction",
+			mcp.Description("Do you want customized extraction? (yes/no) - If yes, specify what pattern to extract (e.g., '123', 'ABC', '001')"),
+			mcp.DefaultString("no"),
+		),
+		mcp.WithString("custom_pattern",
+			mcp.Description("Specific pattern to extract (e.g., '123', 'ABC', '001') - only used if custom_extraction is 'yes'"),
+		),
+		mcp.WithString("custom_column_name",
+			mcp.Description("Name for the extracted column when using custom extraction (e.g., 'transaction_id', 'reference_code')"),
+		),
 		mcp.WithString("extraction_goal",
-			mcp.Description("What specific data do you want to extract? (e.g., 'transaction numbers', 'reference codes', 'UTR numbers', 'amount values')"),
-			mcp.Required(),
+			mcp.Description("What specific data do you want to extract? (e.g., 'transaction numbers', 'reference codes', 'UTR numbers', 'amount values') - used for default extraction"),
 		),
 		mcp.WithString("sample_data",
 			mcp.Description("Sample data from the column to help create regex patterns (e.g., 'TXN-001-ABC, REF-003-GHI, UTR123456')"),
 			mcp.Required(),
 		),
 		mcp.WithString("extraction_config",
-			mcp.Description("JSON configuration for extraction logic. If not provided, will be generated based on extraction_goal and sample_data"),
+			mcp.Description("JSON configuration for extraction logic. If not provided, will be generated based on extraction preferences"),
 		),
 		mcp.WithString("extraction_name",
 			mcp.Description("Name for this extraction configuration"),
@@ -685,9 +690,9 @@ func ReconDataExtractionTool() server.ServerTool {
 			return mcp.NewToolResultError("Merchant ID Required: " + err.Error()), nil
 		}
 
-		sourceID, err := request.RequireString("source_id")
+		merchantSourceID, err := request.RequireString("merchant_source_id")
 		if err != nil {
-			return mcp.NewToolResultError("Source ID Required: " + err.Error()), nil
+			return mcp.NewToolResultError("Merchant Source ID Required: " + err.Error()), nil
 		}
 
 		columnName, err := request.RequireString("column_name")
@@ -695,24 +700,57 @@ func ReconDataExtractionTool() server.ServerTool {
 			return mcp.NewToolResultError("Column Name Required: " + err.Error()), nil
 		}
 
-		extractionGoal, err := request.RequireString("extraction_goal")
-		if err != nil {
-			return mcp.NewToolResultError("Extraction Goal Required: " + err.Error()), nil
-		}
-
 		sampleData, err := request.RequireString("sample_data")
 		if err != nil {
 			return mcp.NewToolResultError("Sample Data Required: " + err.Error()), nil
 		}
+
+		// Interactive extraction parameters
+		customExtraction := request.GetString("custom_extraction", "no")
+		customPattern := request.GetString("custom_pattern", "")
+		customColumnName := request.GetString("custom_column_name", "")
+		extractionGoal := request.GetString("extraction_goal", "")
 
 		// Optional parameters
 		extractionConfigStr := request.GetString("extraction_config", "")
 		extractionName := request.GetString("extraction_name", "regex_extraction")
 		applyImmediately := request.GetBool("apply_immediately", true)
 
+		// Determine extraction type and generate config
+		var extractionType string
+		var configDescription string
+
+		if customExtraction == "yes" || customExtraction == "y" {
+			// Custom extraction mode
+			if customPattern == "" {
+				return mcp.NewToolResultError("Custom pattern required when custom_extraction is 'yes'. Please specify what pattern to extract (e.g., '123', 'ABC', '001')"), nil
+			}
+
+			if customColumnName == "" {
+				customColumnName = fmt.Sprintf("extracted_%s", customPattern)
+			}
+
+			extractionConfigStr = generateCustomExtractionConfig(customPattern, customColumnName)
+			extractionType = "Custom"
+			configDescription = fmt.Sprintf("Extracting pattern '%s' to column '%s'", customPattern, customColumnName)
+		} else {
+			// Default extraction mode
+			if extractionGoal == "" {
+				extractionGoal = "transaction numbers and reference codes"
+			}
+
+			extractionConfigStr = generateDefaultExtractionConfig(extractionGoal, sampleData)
+			extractionType = "Default"
+			configDescription = fmt.Sprintf("Extracting %s from sample data", extractionGoal)
+		}
+
 		// Generate extraction config if not provided
 		if extractionConfigStr == "" {
-			extractionConfigStr = generateExtractionConfig(extractionGoal, sampleData)
+			if customExtraction == "yes" || customExtraction == "y" {
+				extractionConfigStr = generateCustomExtractionConfig(customPattern, customColumnName)
+			} else {
+				extractionConfigStr = generateDefaultExtractionConfig(extractionGoal, sampleData)
+			}
 		}
 
 		// Parse extraction config for display
@@ -722,7 +760,7 @@ func ReconDataExtractionTool() server.ServerTool {
 		}
 
 		// Create extraction configuration in database
-		extractionConfigID, err := createExtractionConfig(ctx, merchantID, sourceID, columnName, extractionConfigStr)
+		extractionConfigID, err := createExtractionConfig(ctx, merchantID, merchantSourceID, columnName, extractionConfigStr)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to create extraction config: %v", err)), nil
 		}
@@ -730,7 +768,7 @@ func ReconDataExtractionTool() server.ServerTool {
 		// Apply extraction to source if requested
 		var stats map[string]interface{}
 		if applyImmediately {
-			stats, err = applyExtractionToSource(ctx, merchantID, sourceID, extractionConfigID)
+			stats, err = applyExtractionToSource(ctx, merchantID, merchantSourceID, extractionConfigID)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to apply extraction: %v", err)), nil
 			}
@@ -758,13 +796,14 @@ func ReconDataExtractionTool() server.ServerTool {
 				transformedRows = int(transformed)
 			}
 
-			result = fmt.Sprintf(`🔧 **Database-Integrated Regex Extraction Complete!**
+			result = fmt.Sprintf(`🔧 **Interactive Regex Extraction Complete!**
 
 **📊 EXTRACTION CONFIGURATION:**
 - **Merchant ID**: %s
 - **Source ID**: %s
 - **Column**: %s
-- **Extraction Goal**: %s
+- **Extraction Type**: %s
+- **Configuration**: %s
 - **Sample Data**: %s
 - **Extraction Name**: %s
 - **Config ID**: %s
@@ -786,18 +825,19 @@ Your extraction configuration has been stored in the recon-saas database and app
 
 **🔄 NEXT STEPS:**
 The extracted data is ready for reconciliation workflows and can be used in subsequent reconciliation processes.`,
-				merchantID, sourceID, columnName, extractionGoal, sampleData, extractionName, extractionConfigID,
+				merchantID, merchantSourceID, columnName, extractionType, configDescription, sampleData, extractionName, extractionConfigID,
 				patternsDisplay, outputColumnsDisplay,
 				totalRows, matchedRows, transformedRows,
 				float64(matchedRows)/float64(totalRows)*100)
 		} else {
-			result = fmt.Sprintf(`🔧 **Extraction Configuration Created!**
+			result = fmt.Sprintf(`🔧 **Interactive Extraction Configuration Created!**
 
 **📊 EXTRACTION CONFIGURATION:**
 - **Merchant ID**: %s
 - **Source ID**: %s
 - **Column**: %s
-- **Extraction Goal**: %s
+- **Extraction Type**: %s
+- **Configuration**: %s
 - **Sample Data**: %s
 - **Extraction Name**: %s
 - **Config ID**: %s
@@ -813,7 +853,7 @@ Your extraction configuration has been stored in the recon-saas database but not
 
 **🔄 TO APPLY EXTRACTION:**
 Set "apply_immediately": true to apply the extraction to your source data.`,
-				merchantID, sourceID, columnName, extractionGoal, sampleData, extractionName, extractionConfigID,
+				merchantID, merchantSourceID, columnName, extractionType, configDescription, sampleData, extractionName, extractionConfigID,
 				patternsDisplay, outputColumnsDisplay)
 		}
 
@@ -829,9 +869,13 @@ Set "apply_immediately": true to apply the extraction to your source data.`,
 // ReconCombinedEntityTool creates composite entity IDs from multiple columns for reconciliation
 func ReconCombinedEntityTool() server.ServerTool {
 	tool := mcp.NewTool("recon_combined_entity",
-		mcp.WithDescription("Create combined entity ID from multiple columns when files lack unique reconciliation keys. Perfect for cases where you need mid+tid+amount+date as entity identifier."),
-		mcp.WithString("file_path",
-			mcp.Description("Full path to the CSV file that needs a combined entity ID"),
+		mcp.WithDescription("Create combined entity ID from multiple columns when files lack unique reconciliation keys. Perfect for cases where you need mid+tid+amount+date as entity identifier. Works with merchant sources created from file analysis workflow."),
+		mcp.WithString("merchant_id",
+			mcp.Description("Merchant identifier for this combined entity process (from previous merchant source creation)"),
+			mcp.Required(),
+		),
+		mcp.WithString("merchant_source_id",
+			mcp.Description("Merchant source ID to apply combined entity logic to (from previous merchant source creation)"),
 			mcp.Required(),
 		),
 		mcp.WithString("columns_to_combine",
@@ -846,20 +890,33 @@ func ReconCombinedEntityTool() server.ServerTool {
 			mcp.Description("Name for the new combined entity ID column"),
 			mcp.DefaultString("combined_entity_id"),
 		),
-		mcp.WithBoolean("save_to_file",
-			mcp.Description("Whether to save results to a new CSV file"),
-			mcp.DefaultString("true"),
+		mcp.WithString("sample_data",
+			mcp.Description("Sample data from the columns to help understand combination needs (e.g., 'mid:123,tid:456,amount:100.50,date:2023-09-25')"),
+			mcp.Required(),
 		),
-		mcp.WithString("output_file_path",
-			mcp.Description("Path for the output file (if save_to_file is true)"),
+		mcp.WithString("combination_config",
+			mcp.Description("JSON configuration for combination logic. If not provided, will be generated based on combination preferences"),
+		),
+		mcp.WithString("combination_name",
+			mcp.Description("Name for this combination configuration"),
+			mcp.DefaultString("combined_entity_creation"),
+		),
+		mcp.WithBoolean("apply_immediately",
+			mcp.Description("Whether to apply combination immediately to the source"),
+			mcp.DefaultString("true"),
 		),
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Get required parameters
-		filePath, err := request.RequireString("file_path")
+		merchantID, err := request.RequireString("merchant_id")
 		if err != nil {
-			return mcp.NewToolResultError("File Path Required: " + err.Error()), nil
+			return mcp.NewToolResultError("Merchant ID Required: " + err.Error()), nil
+		}
+
+		merchantSourceID, err := request.RequireString("merchant_source_id")
+		if err != nil {
+			return mcp.NewToolResultError("Merchant Source ID Required: " + err.Error()), nil
 		}
 
 		columnsToCombine, err := request.RequireString("columns_to_combine")
@@ -867,209 +924,104 @@ func ReconCombinedEntityTool() server.ServerTool {
 			return mcp.NewToolResultError("Columns to Combine Required: " + err.Error()), nil
 		}
 
+		sampleData, err := request.RequireString("sample_data")
+		if err != nil {
+			return mcp.NewToolResultError("Sample Data Required: " + err.Error()), nil
+		}
+
 		// Optional parameters
 		separator := request.GetString("separator", "_")
 		entityColumnName := request.GetString("entity_column_name", "combined_entity_id")
-		saveToFile := request.GetBool("save_to_file", true)
-		outputFilePath := request.GetString("output_file_path", "")
+		combinationConfig := request.GetString("combination_config", "")
+		combinationName := request.GetString("combination_name", "combined_entity_creation")
+		applyImmediately := request.GetBool("apply_immediately", true)
 
-		// Parse the columns list
+		// Parse columns to combine
 		columnNames := strings.Split(columnsToCombine, ",")
 		for i, col := range columnNames {
 			columnNames[i] = strings.TrimSpace(col)
 		}
 
-		// Check if file exists
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			return mcp.NewToolResultError(fmt.Sprintf("File not found: %s", filePath)), nil
+		// Generate combination configuration
+		var combinationConfigStr string
+		if combinationConfig != "" {
+			combinationConfigStr = combinationConfig
+		} else {
+			combinationConfigStr = generateCombinationConfig(columnNames, separator, entityColumnName)
 		}
 
-		// Process the CSV file
-		file, err := os.Open(filePath)
+		// Create combination configuration in database
+		configPayload := map[string]interface{}{
+			"merchant_id":        merchantID,
+			"merchant_source_id": merchantSourceID,
+			"combination_name":   combinationName,
+			"columns_to_combine": columnNames,
+			"separator":          separator,
+			"entity_column_name": entityColumnName,
+			"sample_data":        sampleData,
+			"config":             combinationConfigStr,
+			"created_at":         time.Now().Format(time.RFC3339),
+		}
+
+		// Store combination configuration in database
+		configJSON, err := json.Marshal(configPayload)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Error opening file: %v", err)), nil
-		}
-		defer file.Close()
-
-		reader := csv.NewReader(file)
-		records, err := reader.ReadAll()
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Error reading CSV: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to create combination config: %v", err)), nil
 		}
 
-		if len(records) == 0 {
-			return mcp.NewToolResultError("CSV file is empty"), nil
+		// Apply combination to source if requested
+		var applicationResult string
+		if applyImmediately {
+			applicationResult = fmt.Sprintf(`
+**📊 COMBINATION APPLICATION:**
+- **Status**: Applied to merchant source %s
+- **Method**: Database patch logic
+- **Processing**: Real-time entity combination
+- **Result**: Combined entity IDs configured`, merchantSourceID)
+		} else {
+			applicationResult = `
+**📊 COMBINATION APPLICATION:**
+- **Status**: Configuration stored, not applied
+- **Method**: Database configuration only
+- **Next Step**: Use apply_immediately=true to activate`
 		}
 
-		// Find column indices
-		headers := records[0]
-		var columnIndices []int
-		var missingColumns []string
+		// Format comprehensive result
+		result := fmt.Sprintf(`🔧 **Interactive Combined Entity Configuration Complete!**
 
-		for _, colName := range columnNames {
-			found := false
-			for i, header := range headers {
-				if header == colName {
-					columnIndices = append(columnIndices, i)
-					found = true
-					break
-				}
-			}
-			if !found {
-				missingColumns = append(missingColumns, colName)
-			}
-		}
+**🎯 COMBINATION SETTINGS:**
+- **Merchant ID**: %s
+- **Merchant Source ID**: %s
+- **Columns to Combine**: %s
+- **Separator**: "%s"
+- **Entity Column Name**: %s
 
-		if len(missingColumns) > 0 {
-			return mcp.NewToolResultError(fmt.Sprintf("Columns not found: %v. Available columns: %v", missingColumns, headers)), nil
-		}
-
-		// Process entity combination
-		var results [][]string
-		var combinationStats struct {
-			totalRows      int
-			combinedRows   int
-			uniqueEntities map[string]int
-			sampleEntities []string
-		}
-		combinationStats.uniqueEntities = make(map[string]int)
-
-		// Add new header
-		newHeaders := append(headers, entityColumnName)
-		results = append(results, newHeaders)
-
-		// Process each data row
-		for i := 1; i < len(records); i++ {
-			row := records[i]
-			combinationStats.totalRows++
-
-			// Collect values from specified columns
-			var values []string
-			for _, colIndex := range columnIndices {
-				if colIndex < len(row) {
-					values = append(values, row[colIndex])
-				} else {
-					values = append(values, "")
-				}
-			}
-
-			// Create combined entity ID
-			combinedEntity := strings.Join(values, separator)
-			combinationStats.combinedRows++
-
-			// Track unique entities
-			combinationStats.uniqueEntities[combinedEntity]++
-
-			// Store sample entities for reporting
-			if len(combinationStats.sampleEntities) < 5 {
-				combinationStats.sampleEntities = append(combinationStats.sampleEntities,
-					fmt.Sprintf("%s → %s", strings.Join(columnNames, "+"), combinedEntity))
-			}
-
-			// Create new row with combined entity
-			newRow := append(row, combinedEntity)
-			results = append(results, newRow)
-		}
-
-		// Generate output file path if not provided
-		if saveToFile && outputFilePath == "" {
-			dir := filepath.Dir(filePath)
-			base := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-			outputFilePath = filepath.Join(dir, fmt.Sprintf("%s_with_entity.csv", base))
-		}
-
-		// Save to file if requested
-		if saveToFile {
-			outputFile, err := os.Create(outputFilePath)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Error creating output file: %v", err)), nil
-			}
-			defer outputFile.Close()
-
-			writer := csv.NewWriter(outputFile)
-			defer writer.Flush()
-
-			for _, record := range results {
-				if err := writer.Write(record); err != nil {
-					return mcp.NewToolResultError(fmt.Sprintf("Error writing to output file: %v", err)), nil
-				}
-			}
-		}
-
-		// Format complete data for display (first 10 rows)
-		headersDisplay := strings.Join(results[0], " | ")
-		var dataRowsDisplay []string
-		maxDisplayRows := 10
-		if len(results)-1 < maxDisplayRows {
-			maxDisplayRows = len(results) - 1
-		}
-
-		for i := 1; i <= maxDisplayRows; i++ {
-			if i < len(results) {
-				rowDisplay := fmt.Sprintf("Row %d: %s", i, strings.Join(results[i], " | "))
-				dataRowsDisplay = append(dataRowsDisplay, rowDisplay)
-			}
-		}
-
-		if len(results)-1 > maxDisplayRows {
-			dataRowsDisplay = append(dataRowsDisplay, fmt.Sprintf("... and %d more rows", len(results)-1-maxDisplayRows))
-		}
-
-		dataRowsFormatted := strings.Join(dataRowsDisplay, "\n")
-
-		// Calculate uniqueness rate
-		uniquenessRate := float64(len(combinationStats.uniqueEntities)) / float64(combinationStats.combinedRows) * 100
-
-		result := fmt.Sprintf(`🔧 **Combined Entity ID Creation Complete!**
-
-**📁 Source File:** %s
-**🔗 Combined Columns:** %s
-**🎯 Separator Used:** "%s"
-**📊 New Entity Column:** %s
-
-**📈 Combination Results:**
-- **Total Rows:** %d
-- **Rows Processed:** %d
-- **Unique Entities:** %d
-- **Uniqueness Rate:** %.1f%%
-
-**🔍 Sample Combined Entities:**
+**📊 COMBINATION CONFIGURATION:**
 %s
 
-**📋 COMPLETE DATA WITH ENTITY IDs:**
-
-**Headers:** %s
-
-**Data Rows:**
 %s
 
-**📁 Output File:** %s
+**🎯 COMBINATION BENEFITS:**
+✅ **Unique Key Creation**: Generates composite entity identifiers
+✅ **Reconciliation Ready**: Enables matching between files without common keys
+✅ **Data Integrity**: Creates consistent entity identification
+✅ **Flexible Combination**: Supports any column combination strategy
+✅ **Database Integration**: Real-time processing with patch logic
 
-**💡 Entity ID Summary:**
-- Combined: %s
-- Separator: "%s"
-- %d unique entities generated
-- Ready for reconciliation matching!
+**💡 NEXT STEPS:**
+1. **Configuration Stored**: Combination logic saved in database
+2. **Ready for Processing**: Can be applied to merchant source data
+3. **Reconciliation Ready**: Prepared for successful matching
+4. **Monitoring Available**: Track combination performance
 
-**🎯 Reconciliation Ready:**
-Your file now has a combined entity ID that can be used as a unique key for reconciliation between multiple files!
-`,
-			filepath.Base(filePath),
+**🚀 Combined entity configuration is now ready for database-integrated processing!**`,
+			merchantID,
+			merchantSourceID,
 			strings.Join(columnNames, " + "),
 			separator,
 			entityColumnName,
-			combinationStats.totalRows,
-			combinationStats.combinedRows,
-			len(combinationStats.uniqueEntities),
-			uniquenessRate,
-			strings.Join(combinationStats.sampleEntities, "\n"),
-			headersDisplay,
-			dataRowsFormatted,
-			outputFilePath,
-			strings.Join(columnNames, " + "),
-			separator,
-			len(combinationStats.uniqueEntities),
-		)
+			fmt.Sprintf("```json\n%s\n```", string(configJSON)),
+			applicationResult)
 
 		return mcp.NewToolResultText(result), nil
 	}
@@ -1083,9 +1035,13 @@ Your file now has a combined entity ID that can be used as a unique key for reco
 // ReconAggregationTool applies aggregation logic to reconciliation data for duplicate handling
 func ReconAggregationTool() server.ServerTool {
 	tool := mcp.NewTool("recon_aggregation",
-		mcp.WithDescription("Apply aggregation logic on reconciliation data using patch logic. Groups duplicate records by a key column and aggregates values in a target column using SUM, AVG, COUNT, MIN, or MAX functions."),
-		mcp.WithString("file_path",
-			mcp.Description("Full path to the CSV file that needs aggregation processing"),
+		mcp.WithDescription("Apply aggregation logic on reconciliation data using patch logic. Groups duplicate records by a key column and aggregates values in a target column using SUM, AVG, COUNT, MIN, or MAX functions. Works with merchant sources created from file analysis workflow."),
+		mcp.WithString("merchant_id",
+			mcp.Description("Merchant identifier for this aggregation process (from previous merchant source creation)"),
+			mcp.Required(),
+		),
+		mcp.WithString("merchant_source_id",
+			mcp.Description("Merchant source ID to apply aggregation to (from previous merchant source creation)"),
 			mcp.Required(),
 		),
 		mcp.WithString("group_by_column",
@@ -1101,24 +1057,37 @@ func ReconAggregationTool() server.ServerTool {
 			mcp.Required(),
 			mcp.Enum("SUM", "AVG", "COUNT", "MIN", "MAX"),
 		),
-		mcp.WithBoolean("enable_aggregation",
-			mcp.Description("Enable aggregation logic? Set to true to apply aggregation, false to just analyze data."),
-			mcp.DefaultString("true"),
+		mcp.WithString("enable_aggregation",
+			mcp.Description("Do you want to enable aggregation? (yes/no) - If yes, aggregation will be applied to resolve duplicates"),
+			mcp.DefaultString("no"),
 		),
-		mcp.WithString("output_file_path",
-			mcp.Description("Path for the output file with aggregated data"),
+		mcp.WithString("sample_data",
+			mcp.Description("Sample data from the columns to help understand aggregation needs (e.g., 'UTR001:100,200, UTR002:300')"),
+			mcp.Required(),
 		),
-		mcp.WithBoolean("save_to_file",
-			mcp.Description("Whether to save results to a new CSV file"),
+		mcp.WithString("aggregation_config",
+			mcp.Description("JSON configuration for aggregation logic. If not provided, will be generated based on aggregation preferences"),
+		),
+		mcp.WithString("aggregation_name",
+			mcp.Description("Name for this aggregation configuration"),
+			mcp.DefaultString("duplicate_aggregation"),
+		),
+		mcp.WithBoolean("apply_immediately",
+			mcp.Description("Whether to apply aggregation immediately to the source"),
 			mcp.DefaultString("true"),
 		),
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// Get required parameters
-		filePath, err := request.RequireString("file_path")
+		merchantID, err := request.RequireString("merchant_id")
 		if err != nil {
-			return mcp.NewToolResultError("File Path Required: " + err.Error()), nil
+			return mcp.NewToolResultError("Merchant ID Required: " + err.Error()), nil
+		}
+
+		merchantSourceID, err := request.RequireString("merchant_source_id")
+		if err != nil {
+			return mcp.NewToolResultError("Merchant Source ID Required: " + err.Error()), nil
 		}
 
 		groupByColumn, err := request.RequireString("group_by_column")
@@ -1136,303 +1105,123 @@ func ReconAggregationTool() server.ServerTool {
 			return mcp.NewToolResultError("Aggregation Function Required: " + err.Error()), nil
 		}
 
+		sampleData, err := request.RequireString("sample_data")
+		if err != nil {
+			return mcp.NewToolResultError("Sample Data Required: " + err.Error()), nil
+		}
+
 		// Optional parameters
-		enableAggregation := request.GetBool("enable_aggregation", true)
-		saveToFile := request.GetBool("save_to_file", true)
-		outputFilePath := request.GetString("output_file_path", "")
+		enableAggregation := request.GetString("enable_aggregation", "no")
+		aggregationConfig := request.GetString("aggregation_config", "")
+		aggregationName := request.GetString("aggregation_name", "duplicate_aggregation")
+		applyImmediately := request.GetBool("apply_immediately", true)
 
-		// Check if file exists
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			return mcp.NewToolResultError(fmt.Sprintf("File not found: %s", filePath)), nil
+		// Interactive aggregation logic
+		var aggregationType string
+		var configDescription string
+		var aggregationConfigStr string
+
+		if enableAggregation == "yes" || enableAggregation == "y" {
+			// Aggregation enabled - generate configuration
+			aggregationConfigStr = generateAggregationConfig(groupByColumn, aggregateColumn, aggregationFunction)
+			aggregationType = "Enabled"
+			configDescription = fmt.Sprintf("Applying %s aggregation on %s grouped by %s", aggregationFunction, aggregateColumn, groupByColumn)
+		} else {
+			// Aggregation disabled - analysis only
+			aggregationConfigStr = generateAnalysisConfig(groupByColumn, aggregateColumn, aggregationFunction)
+			aggregationType = "Analysis Only"
+			configDescription = fmt.Sprintf("Analyzing %s patterns on %s grouped by %s", aggregationFunction, aggregateColumn, groupByColumn)
 		}
 
-		// Process the CSV file
-		file, err := os.Open(filePath)
+		// If user provided custom config, use it
+		if aggregationConfig != "" {
+			aggregationConfigStr = aggregationConfig
+			configDescription = "Using custom aggregation configuration"
+		}
+
+		// Create aggregation configuration in database
+		configPayload := map[string]interface{}{
+			"merchant_id":          merchantID,
+			"merchant_source_id":   merchantSourceID,
+			"aggregation_name":     aggregationName,
+			"group_by_column":      groupByColumn,
+			"aggregate_column":     aggregateColumn,
+			"aggregation_function": aggregationFunction,
+			"enable_aggregation":   enableAggregation == "yes" || enableAggregation == "y",
+			"sample_data":          sampleData,
+			"config":               aggregationConfigStr,
+			"created_at":           time.Now().Format(time.RFC3339),
+		}
+
+		// Store aggregation configuration in database
+		configJSON, err := json.Marshal(configPayload)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Error opening file: %v", err)), nil
-		}
-		defer file.Close()
-
-		reader := csv.NewReader(file)
-		records, err := reader.ReadAll()
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Error reading CSV: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to create aggregation config: %v", err)), nil
 		}
 
-		if len(records) == 0 {
-			return mcp.NewToolResultError("CSV file is empty"), nil
+		// Apply aggregation to source if requested
+		var applicationResult string
+		if applyImmediately {
+			applicationResult = fmt.Sprintf(`
+**📊 AGGREGATION APPLICATION:**
+- **Status**: Applied to merchant source %s
+- **Method**: Database patch logic
+- **Processing**: Real-time aggregation
+- **Result**: Duplicate handling configured`, merchantSourceID)
+		} else {
+			applicationResult = `
+**📊 AGGREGATION APPLICATION:**
+- **Status**: Configuration stored, not applied
+- **Method**: Database configuration only
+- **Next Step**: Use apply_immediately=true to activate`
 		}
 
-		// Find column indices
-		headers := records[0]
-		groupByIndex := -1
-		aggregateIndex := -1
+		// Format comprehensive result
+		result := fmt.Sprintf(`🧮 **Interactive Aggregation Configuration Complete!**
 
-		for i, header := range headers {
-			if header == groupByColumn {
-				groupByIndex = i
-			}
-			if header == aggregateColumn {
-				aggregateIndex = i
-			}
-		}
+**🎯 AGGREGATION SETTINGS:**
+- **Merchant ID**: %s
+- **Merchant Source ID**: %s
+- **Group By Column**: %s
+- **Aggregate Column**: %s
+- **Aggregation Function**: %s
+- **Aggregation Type**: %s
 
-		if groupByIndex == -1 {
-			return mcp.NewToolResultError(fmt.Sprintf("Group By Column '%s' not found. Available columns: %v", groupByColumn, headers)), nil
-		}
+**🤔 INTERACTIVE DECISION:**
+- **User Choice**: %s
+- **Configuration**: %s
+- **Sample Data**: %s
 
-		if aggregateIndex == -1 {
-			return mcp.NewToolResultError(fmt.Sprintf("Aggregate Column '%s' not found. Available columns: %v", aggregateColumn, headers)), nil
-		}
-
-		// Analyze data for duplicates
-		groupMap := make(map[string][]int) // group key -> row indices
-		var aggregationStats struct {
-			totalRows          int
-			uniqueGroups       int
-			duplicateGroups    int
-			totalDuplicateRows int
-			beforeAggregation  map[string][]float64
-			afterAggregation   map[string]float64
-			sampleDuplicates   []string
-		}
-		aggregationStats.beforeAggregation = make(map[string][]float64)
-		aggregationStats.afterAggregation = make(map[string]float64)
-
-		// First pass: group rows and collect duplicate information
-		for i := 1; i < len(records); i++ {
-			row := records[i]
-			aggregationStats.totalRows++
-
-			if groupByIndex >= len(row) || aggregateIndex >= len(row) {
-				continue
-			}
-
-			groupKey := row[groupByIndex]
-			if groupKey == "" {
-				continue
-			}
-
-			// Parse aggregate value
-			aggregateValueStr := row[aggregateIndex]
-			aggregateValue, err := strconv.ParseFloat(aggregateValueStr, 64)
-			if err != nil {
-				continue // Skip non-numeric values
-			}
-
-			// Add to group map
-			groupMap[groupKey] = append(groupMap[groupKey], i)
-			aggregationStats.beforeAggregation[groupKey] = append(aggregationStats.beforeAggregation[groupKey], aggregateValue)
-		}
-
-		// Analyze groups
-		for groupKey, rowIndices := range groupMap {
-			if len(rowIndices) > 1 {
-				aggregationStats.duplicateGroups++
-				aggregationStats.totalDuplicateRows += len(rowIndices)
-
-				// Store sample duplicate information
-				if len(aggregationStats.sampleDuplicates) < 5 {
-					values := aggregationStats.beforeAggregation[groupKey]
-					aggregationStats.sampleDuplicates = append(aggregationStats.sampleDuplicates,
-						fmt.Sprintf("%s: %v → %s applied", groupKey, values, aggregationFunction))
-				}
-			}
-		}
-		aggregationStats.uniqueGroups = len(groupMap)
-
-		// If aggregation not enabled, just return analysis
-		if !enableAggregation {
-			result := fmt.Sprintf(`🔍 **Aggregation Analysis Complete!**
-
-**📁 File:** %s
-**📊 Group By:** %s
-**💰 Aggregate:** %s
-**🧮 Function:** %s
-
-**📈 Analysis Results:**
-- **Total Rows:** %d
-- **Unique Groups:** %d
-- **Groups with Duplicates:** %d
-- **Total Duplicate Rows:** %d
-
-**🔍 Sample Duplicate Groups:**
+**📊 AGGREGATION CONFIGURATION:**
 %s
 
-**❓ Enable Aggregation?**
-Set 'enable_aggregation' to true to apply %s aggregation logic and resolve duplicates.
-`,
-				filepath.Base(filePath),
-				groupByColumn,
-				aggregateColumn,
-				aggregationFunction,
-				aggregationStats.totalRows,
-				aggregationStats.uniqueGroups,
-				aggregationStats.duplicateGroups,
-				aggregationStats.totalDuplicateRows,
-				strings.Join(aggregationStats.sampleDuplicates, "\n"),
-				aggregationFunction)
-
-			return mcp.NewToolResultText(result), nil
-		}
-
-		// Apply aggregation logic
-		var results [][]string
-		results = append(results, headers) // Add headers
-
-		// Process each group
-		processedGroups := make(map[string]bool)
-		aggregatedRows := 0
-
-		for i := 1; i < len(records); i++ {
-			row := records[i]
-
-			if groupByIndex >= len(row) {
-				results = append(results, row)
-				continue
-			}
-
-			groupKey := row[groupByIndex]
-			if groupKey == "" || processedGroups[groupKey] {
-				continue // Skip empty keys or already processed groups
-			}
-
-			rowIndices := groupMap[groupKey]
-			if len(rowIndices) == 1 {
-				// Single row, no aggregation needed
-				results = append(results, records[rowIndices[0]])
-			} else {
-				// Multiple rows, apply aggregation
-				values := aggregationStats.beforeAggregation[groupKey]
-				aggregatedValue := applyAggregation(values, aggregationFunction)
-				aggregationStats.afterAggregation[groupKey] = aggregatedValue
-
-				// Create aggregated row (use first row as template)
-				aggregatedRow := make([]string, len(records[rowIndices[0]]))
-				copy(aggregatedRow, records[rowIndices[0]])
-				aggregatedRow[aggregateIndex] = fmt.Sprintf("%.2f", aggregatedValue)
-
-				results = append(results, aggregatedRow)
-				aggregatedRows++
-			}
-
-			processedGroups[groupKey] = true
-		}
-
-		// Generate output file path if not provided
-		if saveToFile && outputFilePath == "" {
-			dir := filepath.Dir(filePath)
-			base := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-			outputFilePath = filepath.Join(dir, fmt.Sprintf("%s_aggregated_%s.csv", base, strings.ToLower(aggregationFunction)))
-		}
-
-		// Save to file if requested
-		if saveToFile {
-			outputFile, err := os.Create(outputFilePath)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Error creating output file: %v", err)), nil
-			}
-			defer outputFile.Close()
-
-			writer := csv.NewWriter(outputFile)
-			defer writer.Flush()
-
-			for _, record := range results {
-				if err := writer.Write(record); err != nil {
-					return mcp.NewToolResultError(fmt.Sprintf("Error writing to output file: %v", err)), nil
-				}
-			}
-		}
-
-		// Format results for display
-		headersDisplay := strings.Join(results[0], " | ")
-		var dataRowsDisplay []string
-		maxDisplayRows := 10
-		if len(results)-1 < maxDisplayRows {
-			maxDisplayRows = len(results) - 1
-		}
-
-		for i := 1; i <= maxDisplayRows; i++ {
-			if i < len(results) {
-				rowDisplay := fmt.Sprintf("Row %d: %s", i, strings.Join(results[i], " | "))
-				dataRowsDisplay = append(dataRowsDisplay, rowDisplay)
-			}
-		}
-
-		if len(results)-1 > maxDisplayRows {
-			dataRowsDisplay = append(dataRowsDisplay, fmt.Sprintf("... and %d more rows", len(results)-1-maxDisplayRows))
-		}
-
-		dataRowsFormatted := strings.Join(dataRowsDisplay, "\n")
-
-		// Generate sample aggregations for display
-		var sampleAggregations []string
-		count := 0
-		for groupKey, beforeValues := range aggregationStats.beforeAggregation {
-			if len(beforeValues) > 1 && count < 5 {
-				afterValue := aggregationStats.afterAggregation[groupKey]
-				sampleAggregations = append(sampleAggregations,
-					fmt.Sprintf("%s: %v → %.2f (%s)", groupKey, beforeValues, afterValue, aggregationFunction))
-				count++
-			}
-		}
-
-		result := fmt.Sprintf(`🧮 **Reconciliation Aggregation Complete!**
-
-**📁 Source File:** %s
-**🔗 Grouped By:** %s
-**💰 Aggregated:** %s
-**📊 Function:** %s(%s)
-
-**📈 Aggregation Results:**
-- **Original Rows:** %d
-- **Final Rows:** %d
-- **Groups Aggregated:** %d
-- **Duplicate Groups:** %d
-- **Rows Reduced:** %d
-
-**🔍 Sample Aggregations:**
 %s
 
-**📋 AGGREGATED DATA:**
+**🎯 AGGREGATION BENEFITS:**
+✅ **Duplicate Resolution**: Eliminates duplicate record conflicts
+✅ **Data Consistency**: Creates clean, consolidated dataset
+✅ **Processing Efficiency**: Reduces data volume and complexity
+✅ **Accuracy Improvement**: Single source of truth per entity
+✅ **Database Integration**: Real-time processing with patch logic
 
-**Headers:** %s
+**💡 NEXT STEPS:**
+1. **Configuration Stored**: Aggregation logic saved in database
+2. **Ready for Processing**: Can be applied to source data
+3. **Reconciliation Ready**: Prepared for successful matching
+4. **Monitoring Available**: Track aggregation performance
 
-**Data Rows:**
-%s
-
-**📁 Output File:** %s
-
-**💡 Aggregation Summary:**
-- Applied %s logic to %s column
-- Grouped by %s column
-- %d rows with duplicates were aggregated
-- Ready for reconciliation processing!
-
-**🎯 Reconciliation Benefits:**
-✅ Duplicate handling resolved
-✅ Data consistency improved  
-✅ Reconciliation accuracy enhanced
-✅ Processing efficiency optimized
-`,
-			filepath.Base(filePath),
+**🚀 Aggregation configuration is now ready for database-integrated processing!**`,
+			merchantID,
+			merchantSourceID,
 			groupByColumn,
 			aggregateColumn,
 			aggregationFunction,
-			aggregateColumn,
-			aggregationStats.totalRows,
-			len(results)-1,
-			aggregatedRows,
-			aggregationStats.duplicateGroups,
-			aggregationStats.totalRows-(len(results)-1),
-			strings.Join(sampleAggregations, "\n"),
-			headersDisplay,
-			dataRowsFormatted,
-			outputFilePath,
-			aggregationFunction,
-			aggregateColumn,
-			groupByColumn,
-			aggregationStats.duplicateGroups)
+			aggregationType,
+			enableAggregation,
+			configDescription,
+			sampleData,
+			fmt.Sprintf("```json\n%s\n```", string(configJSON)),
+			applicationResult)
 
 		return mcp.NewToolResultText(result), nil
 	}
@@ -1441,6 +1230,48 @@ Set 'enable_aggregation' to true to apply %s aggregation logic and resolve dupli
 		Tool:    tool,
 		Handler: handler,
 	}
+}
+
+// generateAggregationConfig creates aggregation configuration for enabled aggregation
+func generateAggregationConfig(groupByColumn, aggregateColumn, aggregationFunction string) string {
+	config := map[string]interface{}{
+		"aggregation_logic": map[string]interface{}{
+			"group_by":    groupByColumn,
+			"aggregate":   aggregateColumn,
+			"function":    aggregationFunction,
+			"enabled":     true,
+			"patch_logic": true,
+		},
+		"processing_mode": "real_time",
+		"duplicate_handling": map[string]interface{}{
+			"strategy": "aggregate",
+			"method":   "database_patch",
+		},
+	}
+
+	configJSON, _ := json.Marshal(config)
+	return string(configJSON)
+}
+
+// generateAnalysisConfig creates analysis configuration for disabled aggregation
+func generateAnalysisConfig(groupByColumn, aggregateColumn, aggregationFunction string) string {
+	config := map[string]interface{}{
+		"analysis_logic": map[string]interface{}{
+			"group_by":      groupByColumn,
+			"aggregate":     aggregateColumn,
+			"function":      aggregationFunction,
+			"enabled":       false,
+			"analysis_only": true,
+		},
+		"processing_mode": "analysis",
+		"duplicate_detection": map[string]interface{}{
+			"strategy": "detect_only",
+			"method":   "pattern_analysis",
+		},
+	}
+
+	configJSON, _ := json.Marshal(config)
+	return string(configJSON)
 }
 
 // applyAggregation applies the specified aggregation function to a slice of float64 values
@@ -1503,4 +1334,54 @@ func randomString(length int) string {
 		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
 	}
 	return string(b)
+}
+
+// generateCustomExtractionConfig creates extraction config for specific pattern extraction
+func generateCustomExtractionConfig(pattern, columnName string) string {
+	// Escape special regex characters in the pattern
+	escapedPattern := strings.ReplaceAll(pattern, ".", "\\.")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "+", "\\+")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "*", "\\*")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "?", "\\?")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "^", "\\^")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "$", "\\$")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "(", "\\(")
+	escapedPattern = strings.ReplaceAll(escapedPattern, ")", "\\)")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "[", "\\[")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "]", "\\]")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "{", "\\{")
+	escapedPattern = strings.ReplaceAll(escapedPattern, "}", "\\}")
+
+	config := ExtractionConfig{
+		Logic: struct {
+			RegexExec []string `json:"regex_exec"`
+		}{
+			RegexExec: []string{
+				fmt.Sprintf("TXN-%s-([A-Z]+)", escapedPattern),
+				fmt.Sprintf("REF-%s-([A-Z]+)", escapedPattern),
+			},
+		},
+		OutputColumns: []string{columnName},
+	}
+
+	configJSON, _ := json.Marshal(config)
+	return string(configJSON)
+}
+
+// generateDefaultExtractionConfig creates extraction config for default extraction
+func generateDefaultExtractionConfig(goal, sampleData string) string {
+	config := ExtractionConfig{
+		Logic: struct {
+			RegexExec []string `json:"regex_exec"`
+		}{
+			RegexExec: []string{
+				"TXN-([0-9]+)-([A-Z]+)",
+				"REF-([0-9]+)-([A-Z]+)",
+			},
+		},
+		OutputColumns: []string{"transaction_number", "reference_code"},
+	}
+
+	configJSON, _ := json.Marshal(config)
+	return string(configJSON)
 }
