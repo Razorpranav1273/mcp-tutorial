@@ -48,12 +48,12 @@ func main() {
 		mcp.CalculatorTool(),
 		mcp.SystemInfoTool(),
 		// Recon-SaaS tools
-		mcp.ReconDataExtractionTool(),
-		mcp.ReconCombinedEntityTool(),
-		mcp.ReconAggregationTool(),
 		mcp.ReconFileAnalysisTool(),
 		mcp.ReconMasterSourceTool(),
 		mcp.ReconMerchantSourceTool(),
+		mcp.ReconAggregationTool(),
+		mcp.ReconDataExtractionTool(),
+		mcp.ReconCombinedEntityTool(),
 		mcp.ReconStateRuleTool(),
 		mcp.ReconProcessSetupTool(),
 	)
@@ -62,12 +62,12 @@ func main() {
 		mcp.MathTutorPrompt(),
 		mcp.CodeReviewPrompt(),
 		// Recon-SaaS prompts
-		mcp.ReconDataExtractionPrompt(),
-		mcp.ReconCombinedEntityPrompt(),
-		mcp.ReconAggregationPrompt(),
 		mcp.ReconFileAnalysisPrompt(),
 		mcp.ReconMasterSourcePrompt(),
 		mcp.ReconMerchantSourcePrompt(),
+		mcp.ReconAggregationPrompt(),
+		mcp.ReconDataExtractionPrompt(),
+		mcp.ReconCombinedEntityPrompt(),
 		mcp.ReconStateRulePrompt(),
 		mcp.ReconProcessSetupPrompt(),
 	)

@@ -866,531 +866,92 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 	}
 }
 
-// ReconDataExtractionPrompt guides users through CSV data extraction using regex patterns
 func ReconDataExtractionPrompt() server.ServerPrompt {
 	prompt := mcp.NewPrompt("recon_data_extraction",
-		mcp.WithPromptDescription("Expert guidance for extracting specific patterns from CSV column data using regex patterns and configuration-based processing. Supports interactive custom extraction, multiple patterns, capture groups, and flexible output strategies."),
-		mcp.WithArgument("merchant_id",
-			mcp.ArgumentDescription("Merchant identifier for this extraction process (e.g., 'MERCHANT_123')"),
-		),
-		mcp.WithArgument("merchant_source_id",
-			mcp.ArgumentDescription("Merchant source ID to apply extraction to (from previous merchant source creation)"),
-		),
-		mcp.WithArgument("column_name",
-			mcp.ArgumentDescription("Name of the column containing data to extract from (e.g., 'paymentid', 'transaction_id', 'reference_number')"),
-		),
-		mcp.WithArgument("custom_extraction",
-			mcp.ArgumentDescription("Do you want customized extraction? (yes/no) - If yes, specify what pattern to extract (e.g., '123', 'ABC', '001')"),
-		),
-		mcp.WithArgument("custom_pattern",
-			mcp.ArgumentDescription("Specific pattern to extract (e.g., '123', 'ABC', '001') - only used if custom_extraction is 'yes'"),
-		),
-		mcp.WithArgument("custom_column_name",
-			mcp.ArgumentDescription("Name for the extracted column when using custom extraction (e.g., 'transaction_id', 'reference_code')"),
-		),
-		mcp.WithArgument("extraction_goal",
-			mcp.ArgumentDescription("What specific data do you want to extract? (e.g., 'transaction numbers', 'reference codes', 'UTR numbers', 'amount values') - used for default extraction"),
-		),
-		mcp.WithArgument("sample_data",
-			mcp.ArgumentDescription("Sample data from the column to help create regex patterns (e.g., 'TXN-001-ABC, REF-003-GHI, UTR123456')"),
-		),
-		mcp.WithArgument("extraction_config",
-			mcp.ArgumentDescription("JSON configuration for extraction logic with regex patterns and output columns"),
-		),
-		mcp.WithArgument("extraction_name",
-			mcp.ArgumentDescription("Name for this extraction configuration"),
-		),
+		mcp.WithPromptDescription("Create interactive regex-based data extraction configurations for reconciliation sources"),
+		mcp.WithArgument("merchant_id", mcp.ArgumentDescription("Merchant identifier")),
+		mcp.WithArgument("merchant_source_id", mcp.ArgumentDescription("Merchant source ID")),
+		mcp.WithArgument("column_name", mcp.ArgumentDescription("Column to extract from")),
+		mcp.WithArgument("extraction_pattern", mcp.ArgumentDescription("What to extract from the data")),
 	)
 
 	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		merchantID := "MERCHANT_123"
-		if mid, exists := request.Params.Arguments["merchant_id"]; exists && mid != "" {
-			merchantID = mid
-		}
-
-		sourceID := "mock_source_123"
-		if sid, exists := request.Params.Arguments["merchant_source_id"]; exists && sid != "" {
-			sourceID = sid
-		}
-
-		columnName := "paymentid"
-		if cn, exists := request.Params.Arguments["column_name"]; exists && cn != "" {
-			columnName = cn
-		}
-
-		customExtraction := "no"
-		if ce, exists := request.Params.Arguments["custom_extraction"]; exists && ce != "" {
-			customExtraction = ce
-		}
-
-		sampleData := "TXN-001-ABC, TXN-002-DEF, REF-003-GHI"
-		if sd, exists := request.Params.Arguments["sample_data"]; exists && sd != "" {
-			sampleData = sd
-		}
-
-		extractionName := "payment_id_extraction"
-		if en, exists := request.Params.Arguments["extraction_name"]; exists && en != "" {
-			extractionName = en
-		}
-
-		elaboratePrompt := fmt.Sprintf(`You are an expert regex data extraction specialist helping users create and apply extraction configurations for reconciliation sources. Based on the user's merchant "%s" source "%s" column "%s", I will guide you through an interactive extraction process.
-
-**🎯 INTERACTIVE EXTRACTION WORKFLOW:**
-
-**STEP 1: EXTRACTION MODE SELECTION**
-🤔 **QUESTION 1: Do you want customized extraction?**
-Please answer: "yes" or "no"
-
-- If "yes": I will ask you what specific pattern to extract (e.g., "123", "ABC", "001")
-- If "no": I will use default extraction for all transaction numbers and reference codes
-
-**STEP 2: CUSTOM EXTRACTION (if you answer "yes")**
-🤔 **QUESTION 2: What specific pattern do you want to extract?**
-Please specify: (e.g., "001", "ABC", "123", "TXN")
-
-🤔 **QUESTION 3: What should I name the extracted column?**
-Please specify: (e.g., "transaction_id", "reference_code", "extracted_value")
-
-**STEP 3: DEFAULT EXTRACTION (if you answer "no")**
-I will extract all transaction numbers and reference codes automatically.
-
-**🎯 DATABASE-INTEGRATED EXTRACTION WORKFLOW:**
-
-**STEP 4: PREREQUISITES CHECK**
-🤔 **QUESTION 4: Have you completed the prerequisite reconciliation steps?**
-Please confirm: "yes" or "no"
-
-Required steps:
-- File analysis
-- Master source creation  
-- Merchant source creation
-- Result: You need merchant_id and merchant_source_id from previous steps
-
-**STEP 5: SAMPLE DATA PROVIDED**
-🤔 **QUESTION 5: Please provide sample data from your column**
-Sample data: %s
-
-**STEP 6: EXTRACTION CONFIGURATION**
-Based on your answers, I will generate the appropriate extraction configuration:
-- Verify patterns match your data format
-
-**STEP 6: DATABASE STORAGE (Automatic)**
-- Tool creates extraction configuration in recon-saas database
-- Stores regex patterns, output columns, merchant/source associations
-- Returns extraction_config_id for future reference
-
-**STEP 7: APPLY TO SOURCE (Automatic)**
-- Tool applies extraction to source data via API calls
-- Updates source database with extracted values
-- Provides processing statistics and success rates
-
-**🛠️ INTERACTIVE TOOL USAGE:**
-
-After answering my questions, I will call the recon_data_extraction tool with these parameters:
-
-{
-  "merchant_id": "%s",
-  "merchant_source_id": "%s",
-  "column_name": "%s",
-  "custom_extraction": "[your answer to question 1]",
-  "custom_pattern": "[your answer to question 2]",
-  "custom_column_name": "[your answer to question 3]",
-  "sample_data": "%s",
-  "extraction_name": "%s",
-  "apply_immediately": true
-}
-
-**🎯 INTERACTIVE EXTRACTION FEATURES:**
-
-**Custom Extraction Mode:**
-- User specifies exact pattern to extract (e.g., "123", "ABC", "001")
-- Creates targeted regex patterns for specific data subsets
-- Outputs to user-defined column names
-- Perfect for focused analysis on specific data patterns
-
-**Default Extraction Mode:**
-- Extracts all transaction numbers and reference codes
-- Uses comprehensive regex patterns for general reconciliation
-- Outputs to standard column names (transaction_number, reference_code)
-- Perfect for general reconciliation across all transactions
-
-**🎯 DATABASE INTEGRATION FEATURES:**
-
-**Configuration Storage:**
-- Extraction configs stored in recon-saas database
-- Merchant-specific and source-specific configurations
-- API endpoint: /v1/admin-recon-saas/extraction/config
-
-**Data Processing:**
-- Applied directly to source data via API calls
-- No CSV files created or managed
-- Real-time processing with database updates
-
-**Regex Pattern Examples:**
-- **Transaction Numbers**: "TXN-([0-9]+)-[A-Z]+" → extracts "001" from "TXN-001-ABC"
-- **Reference Codes**: "[A-Z]+-[0-9]+-([A-Z]+)" → extracts "ABC" from "TXN-001-ABC"
-- **Mixed Patterns**: ["TXN-([0-9]+)-([A-Z]+)","REF-([0-9]+)-([A-Z]+)"] → multiple extractions
-
-**🎯 Ready for Interactive Database-Integrated Extraction:**
-
-Please answer my questions above, and I will guide you through the complete extraction process!
-
-**Let's start: Do you want customized extraction? (yes/no)**`,
-			merchantID, sourceID, columnName, sampleData, extractionName)
-
+		promptText := "You are an expert regex data extraction specialist helping users create and apply extraction configurations for reconciliation sources. Provide comprehensive step-by-step guidance for interactive data extraction.\n\n**INTERACTIVE EXTRACTION WORKFLOW:**\n\n**STEP 1: PREREQUISITES CHECK**\n- Question: \"Have you completed the prerequisite reconciliation steps?\"\n- Required: File analysis, master source creation, merchant source creation\n- Result: You need merchant_id and merchant_source_id from previous steps\n\n**STEP 2: COLUMN SELECTION (Interactive)**\n- Question: \"Which column do you want to extract data from?\"\n- Examples: \"paymentid\", \"transaction_id\", \"reference_number\"\n- This should be a column identified from your file analysis\n\n**STEP 3: EXTRACTION PATTERN (Interactive)**\n- Question: \"What do you want to extract from this column?\"\n- Option 1: \"integers\" or \"numbers\" - Extract all numbers (e.g., \"123\" from \"TXN-123-ABC\")\n- Option 2: Specific pattern - Extract exact text (e.g., \"001\" from \"TXN-001-ABC\")\n- Option 3: Custom pattern - Extract specific format (e.g., \"ABC\" from \"TXN-001-ABC\")\n\n**STEP 4: CONFIGURATION GENERATION**\n- Generate appropriate regex patterns based on user choice\n- Create JSON configuration for extraction logic\n- Store configuration in recon-saas database\n\n**TOOL USAGE INSTRUCTIONS:**\n\nFor the recon_data_extraction tool, use these exact parameters:\n\n{\n  \"merchant_id\": \"your_merchant_id\",\n  \"merchant_source_id\": \"your_merchant_source_id\",\n  \"column_name\": \"paymentid\",\n  \"extraction_pattern\": \"integers\",\n  \"extracted_column_name\": \"entity_id\",\n  \"extraction_name\": \"regex_extraction\",\n  \"apply_immediately\": true\n}\n\n**EXTRACTION EXAMPLES:**\n\n**Scenario 1: Extract Numbers from Payment ID**\n- Column: \"paymentid\"\n- Data: \"PAY-12345-ABC\", \"PAY-67890-DEF\"\n- Pattern: \"integers\"\n- Extracts: \"12345\", \"67890\"\n- Purpose: Create unique entity identifiers\n\n**Scenario 2: Extract Specific Reference Code**\n- Column: \"transaction_id\"\n- Data: \"TXN-001-ABC\", \"TXN-002-DEF\"\n- Pattern: \"001\"\n- Extracts: \"001\" (only from \"TXN-001-ABC\")\n- Purpose: Extract specific transaction codes\n\n**Scenario 3: Extract All Numbers**\n- Column: \"reference_number\"\n- Data: \"REF-123-456-ABC\"\n- Pattern: \"integers\"\n- Extracts: \"123\", \"456\"\n- Purpose: Extract all numeric parts\n\n**TECHNICAL IMPLEMENTATION:**\n\n**Regex Pattern Generation:**\n- \"integers\": ([0-9]+) - Extracts all numbers\n- Specific pattern: (escaped_pattern) - Extracts exact text\n- Custom patterns: User-defined regex\n\n**Database Integration:**\n- Stores extraction configurations in the database\n- Applies extraction rules to live data\n- No file dependencies - works directly with database sources\n\n**REAL-WORLD USE CASES:**\n\n**Bank Reconciliation:**\n- Extract transaction IDs from bank statements\n- Extract reference numbers from payment records\n- Match transactions between different systems\n\n**E-commerce Reconciliation:**\n- Extract order numbers from transaction data\n- Extract customer IDs from payment records\n- Match orders with payments\n\n**Financial Data Processing:**\n- Extract account numbers from statements\n- Extract invoice numbers from transactions\n- Clean and standardize data formats\n\n**BENEFITS:**\n- Automation: Reduces manual data extraction work\n- Accuracy: Consistent regex-based extraction\n- Flexibility: Supports both automatic and custom patterns\n- Integration: Works seamlessly with the Recon-SaaS platform\n- Scalability: Can process large volumes of data\n\nFocus on interactive guidance and step-by-step parameter collection."
 		messages := []mcp.PromptMessage{
-			mcp.NewPromptMessage(
-				mcp.RoleUser,
-				mcp.NewTextContent(elaboratePrompt),
-			),
+			{
+				Role:    "user",
+				Content: mcp.NewTextContent(promptText),
+			},
 		}
-
 		return mcp.NewGetPromptResult(
-			fmt.Sprintf("Interactive Database-Integrated Extraction Guide: Merchant '%s' Source '%s' Column '%s' Mode '%s' Config '%s'", merchantID, sourceID, columnName, customExtraction, extractionName),
+			"Interactive Data Extraction Configuration",
 			messages,
 		), nil
 	}
-
 	return server.ServerPrompt{
 		Prompt:  prompt,
 		Handler: handler,
 	}
 }
 
-// ReconCombinedEntityPrompt guides users through creating composite entity IDs for reconciliation
-func ReconCombinedEntityPrompt() server.ServerPrompt {
-	prompt := mcp.NewPrompt("recon_combined_entity",
-		mcp.WithPromptDescription("Interactive guidance for creating combined entity IDs when your reconciliation files lack unique keys. Perfect for cases where you need mid+tid+amount+date as composite identifier. Works with merchant sources created from file analysis workflow."),
-		mcp.WithArgument("merchant_id",
-			mcp.ArgumentDescription("Merchant identifier for this combined entity process (from previous merchant source creation)"),
-		),
-		mcp.WithArgument("merchant_source_id",
-			mcp.ArgumentDescription("Merchant source ID to apply combined entity logic to (from previous merchant source creation)"),
-		),
-		mcp.WithArgument("columns_to_combine",
-			mcp.ArgumentDescription("Columns you want to combine for entity ID (e.g., 'mid,tid,amount,date')"),
-		),
-		mcp.WithArgument("sample_data",
-			mcp.ArgumentDescription("Sample data from the columns to help understand combination needs (e.g., 'mid:123,tid:456,amount:100.50,date:2023-09-25')"),
-		),
-		mcp.WithArgument("reconciliation_context",
-			mcp.ArgumentDescription("Why you need combined entity ID (e.g., 'files have no common unique key', 'multiple files to reconcile')"),
-		),
-	)
-
-	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		merchantID := "merchant_123"
-		if mid, exists := request.Params.Arguments["merchant_id"]; exists && mid != "" {
-			merchantID = mid
-		}
-
-		merchantSourceID := "source_456"
-		if msid, exists := request.Params.Arguments["merchant_source_id"]; exists && msid != "" {
-			merchantSourceID = msid
-		}
-
-		columnsToCombine := "mid,tid,amount,date"
-		if ctc, exists := request.Params.Arguments["columns_to_combine"]; exists && ctc != "" {
-			columnsToCombine = ctc
-		}
-
-		sampleData := "mid:123,tid:456,amount:100.50,date:2023-09-25"
-		if sd, exists := request.Params.Arguments["sample_data"]; exists && sd != "" {
-			sampleData = sd
-		}
-
-		reconContext := "files have no common unique key"
-		if rc, exists := request.Params.Arguments["reconciliation_context"]; exists && rc != "" {
-			reconContext = rc
-		}
-
-		elaboratePrompt := fmt.Sprintf(`You are an expert reconciliation specialist helping users create combined entity IDs when their files lack unique reconciliation keys. Based on the user's merchant source "%s" with columns "%s" for reconciliation context: "%s", provide comprehensive guidance.
-
-**🚨 RECONCILIATION PROBLEM ASSESSMENT:**
-
-**Hey! 👋 Do you want to create a combined entity column as entity key?**
-
-**Problem:** Your files don't have a unique reconciliation key (like RRN, transaction_id, etc.)
-**Solution:** Combine multiple columns to create a composite entity identifier
-
-**Why This Helps:**
-- Creates unique keys for matching records between files
-- Enables reconciliation when no single column is unique
-- Improves matching accuracy with multiple data points
-- Standard practice in financial reconciliation
-
-**🔧 COMBINED ENTITY STRATEGY:**
-
-**For Your Columns:** %s
-
-**Recommended Approach:**
-- **Combine these columns:** %s
-- **Suggested separator:** "_" (underscore) 
-- **Example result:** mid_123 + tid_456 + amount_100.50 + date_2023-09-25 = "123_456_100.50_2023-09-25"
-
-**🤔 INTERACTIVE QUESTIONS:**
-
-**QUESTION 1: What columns do you want to combine?**
-- Current suggestion: %s
-- Example: "mid,tid,amount,date" or "transaction_id,amount,date"
-
-**QUESTION 2: What separator do you prefer?**
-- Options: "_" (underscore), "-" (dash), "|" (pipe), or custom
-- Default: "_" (underscore)
-
-**QUESTION 3: What should the new column be called?**
-- Current suggestion: "combined_entity_id"
-- Examples: "entity_key", "composite_id", "recon_key"
-
-**QUESTION 4: Do you have sample data to show the combination?**
-- Current sample: %s
-- Example: "mid:123,tid:456,amount:100.50,date:2023-09-25"
-
-**🛠️ TOOL USAGE INSTRUCTIONS:**
-
-For the recon_combined_entity tool, use these exact parameters:
-
-{
-  "merchant_id": "%s",
-  "merchant_source_id": "%s",
-  "columns_to_combine": "%s",
-  "separator": "_",
-  "entity_column_name": "combined_entity_id",
-  "sample_data": "%s",
-  "apply_immediately": true
-}
-
-**🎯 Ready for Reconciliation:**
-With combined entity IDs, you can now successfully reconcile files that previously couldn't be matched due to missing unique keys!
-
-**🚀 Let's create your combined entity configuration!**`,
-			merchantSourceID, columnsToCombine, reconContext,
-			columnsToCombine, columnsToCombine,
-			columnsToCombine,
-			sampleData,
-			merchantID, merchantSourceID, columnsToCombine, sampleData)
-
-		messages := []mcp.PromptMessage{
-			mcp.NewPromptMessage(
-				mcp.RoleUser,
-				mcp.NewTextContent(elaboratePrompt),
-			),
-		}
-
-		return mcp.NewGetPromptResult(
-			fmt.Sprintf("Combined Entity ID Guide: Merchant Source '%s' Columns '%s' (Database Workflow)", merchantSourceID, columnsToCombine),
-			messages,
-		), nil
-	}
-
-	return server.ServerPrompt{
-		Prompt:  prompt,
-		Handler: handler,
-	}
-}
-
-// ReconAggregationPrompt guides users through applying aggregation logic to reconciliation data
+// ReconAggregationPrompt creates an interactive prompt for aggregation configuration
 func ReconAggregationPrompt() server.ServerPrompt {
 	prompt := mcp.NewPrompt("recon_aggregation",
-		mcp.WithPromptDescription("Interactive guidance for applying aggregation logic to reconciliation data with duplicate handling. Works with merchant sources created from file analysis workflow. Perfect for cases where UTR1 appears multiple times and needs to be aggregated using SUM, AVG, COUNT, MIN, or MAX."),
-		mcp.WithArgument("merchant_id",
-			mcp.ArgumentDescription("Merchant identifier for this aggregation process (from previous merchant source creation)"),
-		),
-		mcp.WithArgument("merchant_source_id",
-			mcp.ArgumentDescription("Merchant source ID to apply aggregation to (from previous merchant source creation)"),
-		),
-		mcp.WithArgument("group_by_column",
-			mcp.ArgumentDescription("Column name to group by for duplicates (e.g., 'UTR', 'transaction_id', 'reference_number')"),
-		),
-		mcp.WithArgument("aggregate_column",
-			mcp.ArgumentDescription("Column name containing values to aggregate (e.g., 'amount', 'txn_amount', 'value')"),
-		),
-		mcp.WithArgument("aggregation_function",
-			mcp.ArgumentDescription("Aggregation function to apply (SUM, AVG, COUNT, MIN, MAX)"),
-		),
-		mcp.WithArgument("sample_data",
-			mcp.ArgumentDescription("Sample data from the columns to help understand aggregation needs (e.g., 'UTR001:100,200, UTR002:300')"),
-		),
+		mcp.WithPromptDescription("Create interactive aggregation configurations for reconciliation sources with duplicate handling"),
+		mcp.WithArgument("merchant_id", mcp.ArgumentDescription("Merchant identifier")),
+		mcp.WithArgument("merchant_source_id", mcp.ArgumentDescription("Merchant source ID")),
+		mcp.WithArgument("group_by_column", mcp.ArgumentDescription("Column to group by for duplicates")),
+		mcp.WithArgument("aggregate_column", mcp.ArgumentDescription("Column containing values to aggregate")),
+		mcp.WithArgument("aggregation_function", mcp.ArgumentDescription("Aggregation function to apply")),
+		mcp.WithArgument("sample_data", mcp.ArgumentDescription("Sample data to understand aggregation needs")),
+		mcp.WithArgument("enable_aggregation", mcp.ArgumentDescription("Whether to enable aggregation logic")),
 	)
 
 	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		merchantID := "merchant_123"
-		if mid, exists := request.Params.Arguments["merchant_id"]; exists && mid != "" {
-			merchantID = mid
-		}
-
-		merchantSourceID := "source_456"
-		if msid, exists := request.Params.Arguments["merchant_source_id"]; exists && msid != "" {
-			merchantSourceID = msid
-		}
-
-		groupByColumn := "UTR"
-		if gbc, exists := request.Params.Arguments["group_by_column"]; exists && gbc != "" {
-			groupByColumn = gbc
-		}
-
-		aggregateColumn := "amount"
-		if ac, exists := request.Params.Arguments["aggregate_column"]; exists && ac != "" {
-			aggregateColumn = ac
-		}
-
-		aggregationFunction := "SUM"
-		if af, exists := request.Params.Arguments["aggregation_function"]; exists && af != "" {
-			aggregationFunction = af
-		}
-
-		sampleData := "UTR001:100,200, UTR002:300"
-		if sd, exists := request.Params.Arguments["sample_data"]; exists && sd != "" {
-			sampleData = sd
-		}
-
-		elaboratePrompt := fmt.Sprintf(`You are an expert reconciliation specialist helping users apply aggregation logic to handle duplicate records in reconciliation data. Based on the user's merchant source "%s" with grouping column "%s" and aggregation column "%s" using "%s" function, provide comprehensive guidance.
-
-**🚨 DUPLICATE RECORDS PROBLEM:**
-
-**Hey! 👋 Need to handle duplicate records with aggregation logic?**
-
-**Problem:** Your data has duplicate entries that need to be consolidated
-**Example:** UTR1 appears in multiple rows: 100rs + 200rs = needs to become 300rs total
-**Solution:** Apply aggregation logic using patch methodology
-
-**Why Aggregation Helps:**
-- Consolidates duplicate records into single entries
-- Maintains data integrity during reconciliation
-- Reduces processing complexity and improves accuracy
-- Standard practice in financial data processing
-
-**🔧 AGGREGATION STRATEGY:**
-
-**Your Configuration:**
-- **Group By Column:** %s (finds duplicate records)  
-- **Aggregate Column:** %s (values to process)
-- **Aggregation Function:** %s (how to combine values)
-
-**Example Scenario:**
-
-Before Aggregation:
-UTR1 | 100
-UTR1 | 200  
-UTR2 | 500
-
-After %s Aggregation:
-UTR1 | 300  (100 + 200)
-UTR2 | 500  (no duplicates)
-
-**📊 AVAILABLE AGGREGATION FUNCTIONS:**
-
-**🧮 SUM()** - Add all duplicate values together
-- Use Case: Total amounts, cumulative transactions
-- Example: 100 + 200 + 50 = 350
-
-**📈 AVG()** - Calculate average of duplicate values  
-- Use Case: Average transaction amounts, mean values
-- Example: (100 + 200 + 300) / 3 = 200
-
-**📏 COUNT()** - Count number of duplicate entries
-- Use Case: Transaction frequency, occurrence tracking
-- Example: 3 entries = COUNT = 3
-
-**📉 MIN()** - Find minimum value among duplicates
-- Use Case: Lowest amount, earliest time
-- Example: MIN(100, 200, 50) = 50
-
-**📊 MAX()** - Find maximum value among duplicates  
-- Use Case: Highest amount, latest time
-- Example: MAX(100, 200, 50) = 200
-
-**🤔 INTERACTIVE QUESTIONS:**
-
-**QUESTION 1: Do you want to enable aggregation?**
-- Answer: "yes" or "no"
-- If "yes": Aggregation will be applied to resolve duplicates
-- If "no": Analysis mode only - just detect and report duplicates
-
-**QUESTION 2: What columns do you want to aggregate?**
-- Group By Column: %s (finds duplicate records)
-- Aggregate Column: %s (values to process)
-- Example: "UTR" + "amount" = group by UTR, sum amounts
-
-**QUESTION 3: What aggregation function do you prefer?**
-- Current suggestion: %s
-- Options: SUM, AVG, COUNT, MIN, MAX
-- Example: SUM for totals, AVG for averages
-
-**QUESTION 4: Do you have sample data to show duplicates?**
-- Current sample: %s
-- Example: "UTR001:100,200, UTR002:300"
-
-**🛠️ TOOL USAGE INSTRUCTIONS:**
-
-For the recon_aggregation tool, use these exact parameters:
-
-{
-  "merchant_id": "%s",
-  "merchant_source_id": "%s",
-  "group_by_column": "%s", 
-  "aggregate_column": "%s",
-  "aggregation_function": "%s",
-  "enable_aggregation": "yes",
-  "sample_data": "%s",
-  "apply_immediately": true
-}
-
-**🎯 DATABASE INTEGRATION FEATURES:**
-
-**Configuration Storage:**
-- Aggregation configs stored in recon-saas database
-- Merchant-specific and source-specific configurations
-- Real-time processing with patch logic
-
-**Data Processing:**
-- Applied directly to merchant source data via API calls
-- No CSV files created or managed
-- Database-integrated processing
-
-**🔍 ANALYSIS MODE (Optional):**
-Set "enable_aggregation": "no" to first analyze your data and see duplicate patterns before applying aggregation.
-
-**🎯 RECONCILIATION BENEFITS:**
-
-✅ **Duplicate Resolution**: Eliminates duplicate record conflicts
-✅ **Data Consistency**: Creates clean, consolidated dataset
-✅ **Processing Efficiency**: Reduces data volume and complexity  
-✅ **Accuracy Improvement**: Single source of truth per entity
-✅ **Reconciliation Ready**: Prepared for successful matching
-✅ **Database Integration**: Real-time processing with patch logic
-
-**💡 Best Practices:**
-1. **Analyze First**: Run with enable_aggregation="no" to review duplicates
-2. **Choose Function Carefully**: Select appropriate aggregation logic for your use case
-3. **Verify Results**: Check sample aggregations before full processing
-4. **Database Ready**: Configuration stored for future reference
-
-**🚀 Ready for Interactive Database-Integrated Duplicate Handling:**
-Transform your messy duplicate data into clean, aggregated records perfect for reconciliation processing!
-
-**Let's start: Do you want to enable aggregation? (yes/no)**`,
-			merchantSourceID, groupByColumn, aggregateColumn, aggregationFunction, // 4: main intro
-			groupByColumn, aggregateColumn, aggregationFunction, // 7: configuration section
-			aggregationFunction,            // 8: example scenario
-			groupByColumn, aggregateColumn, // 2: question 2
-			aggregationFunction,                                                                           // 3: question 3
-			sampleData,                                                                                    // 4: question 4
-			merchantID, merchantSourceID, groupByColumn, aggregateColumn, aggregationFunction, sampleData) // 6: tool instructions
-
+		promptText := "You are an expert aggregation specialist helping users create and apply aggregation configurations for reconciliation sources. Provide comprehensive step-by-step guidance for interactive aggregation with duplicate handling.\n\n**INTERACTIVE AGGREGATION WORKFLOW:**\n\n**STEP 1: PREREQUISITES CHECK**\n- Question: \"Have you completed the prerequisite reconciliation steps?\"\n- Required: File analysis, master source creation, merchant source creation\n- Result: You need merchant_id and merchant_source_id from previous steps\n\n**STEP 2: DUPLICATE ANALYSIS (Interactive)**\n- Question: \"Do you have duplicate records that need aggregation?\"\n- Examples: UTR001 appears multiple times with different amounts\n- Purpose: Identify if aggregation is needed\n\n**STEP 3: GROUP BY COLUMN SELECTION (Interactive)**\n- Question: \"Which column should be used to group duplicate records?\"\n- Examples: \"UTR\", \"transaction_id\", \"reference_number\"\n- Purpose: Column that identifies duplicate groups\n\n**STEP 4: AGGREGATE COLUMN SELECTION (Interactive)**\n- Question: \"Which column contains the values to aggregate?\"\n- Examples: \"amount\", \"txn_amount\", \"value\"\n- Purpose: Column with numeric values to consolidate\n\n**STEP 5: AGGREGATION FUNCTION (Interactive)**\n- Question: \"What aggregation function do you want to apply?\"\n- Options: SUM (add values), AVG (average), COUNT (count records), MIN (minimum), MAX (maximum)\n- Purpose: How to combine duplicate values\n\n**STEP 6: USER CONFIRMATION (Interactive)**\n- Question: \"Do you want to enable aggregation logic?\"\n- If \"yes\": Aggregation will be applied with patch logic\n- If \"no\": Analysis mode only - just detect duplicates\n\n**STEP 7: LOOKUP CONFIG (If aggregation enabled)**\n- Question: \"Please provide lookup configuration from master source\"\n- Required: When aggregation is enabled\n- Purpose: Data integrity and validation\n\n**TOOL USAGE INSTRUCTIONS:**\n\nFor the recon_aggregation tool, use these exact parameters:\n\n{\n  \"merchant_id\": \"your_merchant_id\",\n  \"merchant_source_id\": \"your_merchant_source_id\",\n  \"group_by_column\": \"UTR\",\n  \"aggregate_column\": \"amount\",\n  \"aggregation_function\": \"SUM\",\n  \"sample_data\": \"UTR001:100,200 UTR002:300\",\n  \"enable_aggregation\": true,\n  \"lookup_config\": \"lookup_config_from_master_source\",\n  \"apply_immediately\": true\n}\n\n**AGGREGATION EXAMPLES:**\n\n**Scenario 1: UTR Duplicate Handling**\n- Group By: \"UTR\"\n- Aggregate: \"amount\"\n- Function: \"SUM\"\n- Before: UTR001:100, UTR001:200\n- After: UTR001:300\n- Purpose: Consolidate duplicate UTR records\n\n**Scenario 2: Transaction ID Aggregation**\n- Group By: \"transaction_id\"\n- Aggregate: \"txn_amount\"\n- Function: \"AVG\"\n- Before: TXN-001:100, TXN-001:200\n- After: TXN-001:150\n- Purpose: Average duplicate transaction amounts\n\n**Scenario 3: Reference Number Counting**\n- Group By: \"reference_number\"\n- Aggregate: \"amount\"\n- Function: \"COUNT\"\n- Before: REF-001:100, REF-001:200\n- After: REF-001:2 (count of records)\n- Purpose: Count occurrences of reference numbers\n\n**TECHNICAL IMPLEMENTATION:**\n\n**Patch Logic:**\n- Consolidates duplicate records into single entries\n- Maintains data integrity during processing\n- Uses lookup configuration for validation\n- Applies aggregation functions to grouped data\n\n**Database Integration:**\n- Stores aggregation configurations in the database\n- Applies aggregation rules to live data\n- No file dependencies - works directly with database sources\n- Real-time processing with patch methodology\n\n**REAL-WORLD USE CASES:**\n\n**Bank Reconciliation:**\n- Aggregate duplicate UTR numbers\n- Sum multiple transaction amounts\n- Consolidate payment records\n\n**E-commerce Reconciliation:**\n- Aggregate duplicate order numbers\n- Sum order amounts for same order\n- Consolidate payment transactions\n\n**Financial Data Processing:**\n- Aggregate duplicate invoice numbers\n- Sum invoice amounts\n- Consolidate billing records\n\n**BENEFITS:**\n- Duplicate Resolution: Eliminates duplicate record conflicts\n- Data Consistency: Creates clean, consolidated dataset\n- Processing Efficiency: Reduces data volume and complexity\n- Accuracy Improvement: Single source of truth per entity\n- Reconciliation Ready: Prepared for successful matching\n- Database Integration: Real-time processing with patch logic\n\nFocus on interactive guidance and step-by-step parameter collection with user confirmation."
 		messages := []mcp.PromptMessage{
-			mcp.NewPromptMessage(
-				mcp.RoleUser,
-				mcp.NewTextContent(elaboratePrompt),
-			),
+			{
+				Role:    "user",
+				Content: mcp.NewTextContent(promptText),
+			},
 		}
-
 		return mcp.NewGetPromptResult(
-			fmt.Sprintf("Interactive Database-Integrated Aggregation Guide: Merchant Source '%s' Group '%s' Aggregate '%s' Function '%s'", merchantSourceID, groupByColumn, aggregateColumn, aggregationFunction),
+			"Interactive Aggregation Configuration",
 			messages,
 		), nil
 	}
+	return server.ServerPrompt{
+		Prompt:  prompt,
+		Handler: handler,
+	}
+}
 
+
+// ReconCombinedEntityPrompt creates an interactive prompt for combined entity configuration
+func ReconCombinedEntityPrompt() server.ServerPrompt {
+	prompt := mcp.NewPrompt("recon_combined_entity",
+		mcp.WithPromptDescription("Create interactive combined entity configurations for reconciliation sources with multi-column concatenation"),
+		mcp.WithArgument("merchant_id", mcp.ArgumentDescription("Merchant identifier")),
+		mcp.WithArgument("merchant_source_id", mcp.ArgumentDescription("Merchant source ID")),
+		mcp.WithArgument("columns_to_combine", mcp.ArgumentDescription("Columns to combine for entity ID")),
+		mcp.WithArgument("combined_entity_name", mcp.ArgumentDescription("Name for combined entity column")),
+		mcp.WithArgument("sample_data", mcp.ArgumentDescription("Sample data to understand combination needs")),
+		mcp.WithArgument("enable_combined_entity", mcp.ArgumentDescription("Whether to enable combined entity creation")),
+	)
+
+	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		promptText := "You are an expert entity combination specialist helping users create unique identifiers from multiple columns for reconciliation sources. Provide comprehensive step-by-step guidance for interactive combined entity creation."
+		messages := []mcp.PromptMessage{
+			{
+				Role:    "user",
+				Content: mcp.NewTextContent(promptText),
+			},
+		}
+		return mcp.NewGetPromptResult(
+			"Interactive Combined Entity Configuration",
+			messages,
+		), nil
+	}
 	return server.ServerPrompt{
 		Prompt:  prompt,
 		Handler: handler,
