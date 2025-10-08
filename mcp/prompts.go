@@ -873,8 +873,8 @@ func ReconDataExtractionPrompt() server.ServerPrompt {
 		mcp.WithArgument("merchant_id",
 			mcp.ArgumentDescription("Merchant identifier for this extraction process (e.g., 'MERCHANT_123')"),
 		),
-		mcp.WithArgument("source_id",
-			mcp.ArgumentDescription("Source ID to apply extraction to (from previous master/merchant source creation)"),
+		mcp.WithArgument("merchant_source_id",
+			mcp.ArgumentDescription("Merchant source ID to apply extraction to (from previous merchant source creation)"),
 		),
 		mcp.WithArgument("column_name",
 			mcp.ArgumentDescription("Name of the column containing data to extract from (e.g., 'paymentid', 'transaction_id', 'reference_number')"),
@@ -909,7 +909,7 @@ func ReconDataExtractionPrompt() server.ServerPrompt {
 		}
 
 		sourceID := "mock_source_123"
-		if sid, exists := request.Params.Arguments["source_id"]; exists && sid != "" {
+		if sid, exists := request.Params.Arguments["merchant_source_id"]; exists && sid != "" {
 			sourceID = sid
 		}
 
@@ -923,29 +923,9 @@ func ReconDataExtractionPrompt() server.ServerPrompt {
 			customExtraction = ce
 		}
 
-		customPattern := "001"
-		if cp, exists := request.Params.Arguments["custom_pattern"]; exists && cp != "" {
-			customPattern = cp
-		}
-
-		customColumnName := "transaction_id"
-		if ccn, exists := request.Params.Arguments["custom_column_name"]; exists && ccn != "" {
-			customColumnName = ccn
-		}
-
-		extractionGoal := "transaction numbers and reference codes"
-		if eg, exists := request.Params.Arguments["extraction_goal"]; exists && eg != "" {
-			extractionGoal = eg
-		}
-
 		sampleData := "TXN-001-ABC, TXN-002-DEF, REF-003-GHI"
 		if sd, exists := request.Params.Arguments["sample_data"]; exists && sd != "" {
 			sampleData = sd
-		}
-
-		extractionConfig := `{"logic":{"regex_exec":["TXN-([0-9]+)-[A-Z]+","REF-([0-9]+)-[A-Z]+"]},"output_columns":["TransactionNumber"]}`
-		if ec, exists := request.Params.Arguments["extraction_config"]; exists && ec != "" {
-			extractionConfig = ec
 		}
 
 		extractionName := "payment_id_extraction"
@@ -984,7 +964,7 @@ Required steps:
 - File analysis
 - Master source creation  
 - Merchant source creation
-- Result: You need merchant_id and source_id from previous steps
+- Result: You need merchant_id and merchant_source_id from previous steps
 
 **STEP 5: SAMPLE DATA PROVIDED**
 🤔 **QUESTION 5: Please provide sample data from your column**
@@ -992,8 +972,6 @@ Sample data: %s
 
 **STEP 6: EXTRACTION CONFIGURATION**
 Based on your answers, I will generate the appropriate extraction configuration:
-- Your Config: %s
-- Extraction Name: %s
 - Verify patterns match your data format
 
 **STEP 6: DATABASE STORAGE (Automatic)**
@@ -1012,7 +990,7 @@ After answering my questions, I will call the recon_data_extraction tool with th
 
 {
   "merchant_id": "%s",
-  "source_id": "%s",
+  "merchant_source_id": "%s",
   "column_name": "%s",
   "custom_extraction": "[your answer to question 1]",
   "custom_pattern": "[your answer to question 2]",
@@ -1058,10 +1036,7 @@ After answering my questions, I will call the recon_data_extraction tool with th
 Please answer my questions above, and I will guide you through the complete extraction process!
 
 **Let's start: Do you want customized extraction? (yes/no)**`,
-			merchantID, sourceID, columnName, extractionConfig, extractionName,
-			customExtraction, customPattern, customColumnName, extractionGoal, sampleData,
-			extractionConfig, extractionName,
-			merchantID, sourceID, columnName, customExtraction, customPattern, customColumnName, extractionGoal, sampleData, extractionConfig, extractionName)
+			merchantID, sourceID, columnName, sampleData, extractionName)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
