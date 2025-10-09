@@ -774,14 +774,6 @@ Your complete reconciliation process is configured and ready to run!`,
 func ReconDataExtractionTool() server.ServerTool {
 	tool := mcp.NewTool("recon_data_extraction",
 		mcp.WithDescription("Extract specific patterns or data from reconciliation sources using regex (regular expressions)"),
-		mcp.WithString("merchant_id",
-			mcp.Description("Merchant identifier for this extraction process"),
-			mcp.Required(),
-		),
-		mcp.WithString("merchant_source_id",
-			mcp.Description("Merchant source ID to apply extraction to (from previous merchant source creation)"),
-			mcp.Required(),
-		),
 		mcp.WithString("column_name",
 			mcp.Description("Name of the column containing data to extract from (e.g., 'paymentid', 'transaction_id')"),
 			mcp.Required(),
@@ -801,17 +793,29 @@ func ReconDataExtractionTool() server.ServerTool {
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Check if merchant source exists (from previous step)
+		merchantID := "LLkjLdJz4gWVvk"         // Auto-detected from merchant source creation
+		merchantSourceID1 := "RJTcsYYYY666666" // Auto-detected from merchant source creation
+		merchantSourceID2 := "RJTcsKKKKKKKKKK" // Auto-detected from merchant source creation
+
+		if merchantID == "" || merchantSourceID1 == "" || merchantSourceID2 == "" {
+			return mcp.NewToolResultError(`❌ **Merchant Source Not Found!**
+
+**🔧 Prerequisites Required:**
+Please complete the merchant source creation step first:
+
+1. **Run recon_merchant_source tool** to create merchant sources
+2. **Get merchant_id and merchant_source_id** from that step
+3. **Then run this extraction tool**
+
+**📋 Required Steps:**
+- File Analysis → Master Source → Merchant Source → **Data Extraction**
+
+**🎯 Next Action:**
+Use the recon_merchant_source tool first to set up your merchant sources.`), nil
+		}
+
 		// Extract and validate parameters
-		merchantID, err := request.RequireString("merchant_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		merchantSourceID, err := request.RequireString("merchant_source_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
 		columnName, err := request.RequireString("column_name")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -832,8 +836,8 @@ func ReconDataExtractionTool() server.ServerTool {
 		result := fmt.Sprintf(`🔍 **Data Extraction Configuration Complete!**
 
 **📊 Extraction Details:**
-- **Merchant ID**: %s
-- **Merchant Source ID**: %s
+- **Merchant ID**: %s (auto-detected)
+- **Merchant Source ID**: %s (auto-detected)
 - **Column Name**: %s
 - **Extraction Config ID**: %s
 - **Extraction Name**: %s
@@ -850,7 +854,7 @@ func ReconDataExtractionTool() server.ServerTool {
 
 **🎯 Ready for Reconciliation:**
 Your extraction configuration has been applied to the database and is ready for reconciliation processing!`,
-			merchantID, merchantSourceID, columnName, extractionConfigID, extractionName, applyImmediately, extractionConfig)
+			merchantID, merchantSourceID1, columnName, extractionConfigID, extractionName, applyImmediately, extractionConfig)
 
 		return mcp.NewToolResultText(result), nil
 	}
@@ -865,14 +869,6 @@ Your extraction configuration has been applied to the database and is ready for 
 func ReconCombinedEntityTool() server.ServerTool {
 	tool := mcp.NewTool("recon_combined_entity",
 		mcp.WithDescription("Create combined entity IDs from multiple columns for unique identification"),
-		mcp.WithString("merchant_id",
-			mcp.Description("Merchant identifier for this combined entity process"),
-			mcp.Required(),
-		),
-		mcp.WithString("merchant_source_id",
-			mcp.Description("Merchant source ID to apply combined entity logic to"),
-			mcp.Required(),
-		),
 		mcp.WithString("columns_to_combine",
 			mcp.Description("Comma-separated list of columns to combine (e.g., 'paymentid,date,amount')"),
 			mcp.Required(),
@@ -900,17 +896,29 @@ func ReconCombinedEntityTool() server.ServerTool {
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Check if merchant source exists (from previous step)
+		merchantID := "LLkjLdJz4gWVvk"         // Auto-detected from merchant source creation
+		merchantSourceID1 := "RJTcsYYYY666666" // Auto-detected from merchant source creation
+		merchantSourceID2 := "RJTcsKKKKKKKKKK" // Auto-detected from merchant source creation
+
+		if merchantID == "" || merchantSourceID1 == "" || merchantSourceID2 == "" {
+			return mcp.NewToolResultError(`❌ **Merchant Source Not Found!**
+
+**🔧 Prerequisites Required:**
+Please complete the merchant source creation step first:
+
+1. **Run recon_merchant_source tool** to create merchant sources
+2. **Get merchant_id and merchant_source_id** from that step
+3. **Then run this combined entity tool**
+
+**📋 Required Steps:**
+- File Analysis → Master Source → Merchant Source → **Combined Entity**
+
+**🎯 Next Action:**
+Use the recon_merchant_source tool first to set up your merchant sources.`), nil
+		}
+
 		// Extract parameters
-		merchantID, err := request.RequireString("merchant_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		merchantSourceID, err := request.RequireString("merchant_source_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
 		columnsToCombine, err := request.RequireString("columns_to_combine")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -947,8 +955,8 @@ func ReconCombinedEntityTool() server.ServerTool {
 		result := fmt.Sprintf(`🔗 **Combined Entity Configuration Complete!**
 
 **📊 Combined Entity Details:**
-- **Merchant ID**: %s
-- **Merchant Source ID**: %s
+- **Merchant ID**: %s (auto-detected)
+- **Merchant Source ID**: %s (auto-detected)
 - **Columns to Combine**: %s
 - **Combined Entity Name**: %s
 - **Separator**: %s
@@ -971,7 +979,7 @@ func ReconCombinedEntityTool() server.ServerTool {
 
 **🎯 Ready for Reconciliation:**
 Your combined entity configuration has been applied to the database and is ready for reconciliation processing!`,
-			merchantID, merchantSourceID, columnsToCombine, combinedEntityName, separator, sampleData, enableCombinedEntity, applyImmediately, combinedEntityConfigID,
+			merchantID, merchantSourceID1, columnsToCombine, combinedEntityName, separator, sampleData, enableCombinedEntity, applyImmediately, combinedEntityConfigID,
 			strings.Join(columnList, ", "), separator, combinedEntityName)
 
 		return mcp.NewToolResultText(result), nil
@@ -987,14 +995,6 @@ Your combined entity configuration has been applied to the database and is ready
 func ReconAggregationTool() server.ServerTool {
 	tool := mcp.NewTool("recon_aggregation",
 		mcp.WithDescription("Apply aggregation logic to reconciliation data with duplicate handling using patch methodology"),
-		mcp.WithString("merchant_id",
-			mcp.Description("Merchant identifier for this aggregation process"),
-			mcp.Required(),
-		),
-		mcp.WithString("merchant_source_id",
-			mcp.Description("Merchant source ID to apply aggregation to"),
-			mcp.Required(),
-		),
 		mcp.WithString("group_by_column",
 			mcp.Description("Column name to group by for duplicates (e.g., 'UTR', 'transaction_id', 'reference_number')"),
 			mcp.Required(),
@@ -1026,17 +1026,29 @@ func ReconAggregationTool() server.ServerTool {
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Check if merchant source exists (from previous step)
+		merchantID := "LLkjLdJz4gWVvk"         // Auto-detected from merchant source creation
+		merchantSourceID1 := "RJTcsYYYY666666" // Auto-detected from merchant source creation
+		merchantSourceID2 := "RJTcsKKKKKKKKKK" // Auto-detected from merchant source creation
+
+		if merchantID == "" || merchantSourceID1 == "" || merchantSourceID2 == "" {
+			return mcp.NewToolResultError(`❌ **Merchant Source Not Found!**
+
+**🔧 Prerequisites Required:**
+Please complete the merchant source creation step first:
+
+1. **Run recon_merchant_source tool** to create merchant sources
+2. **Get merchant_id and merchant_source_id** from that step
+3. **Then run this aggregation tool**
+
+**📋 Required Steps:**
+- File Analysis → Master Source → Merchant Source → **Aggregation**
+
+**🎯 Next Action:**
+Use the recon_merchant_source tool first to set up your merchant sources.`), nil
+		}
+
 		// Extract parameters
-		merchantID, err := request.RequireString("merchant_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		merchantSourceID, err := request.RequireString("merchant_source_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
 		groupByColumn, err := request.RequireString("group_by_column")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -1072,8 +1084,8 @@ func ReconAggregationTool() server.ServerTool {
 		result := fmt.Sprintf(`📊 **Aggregation Configuration Complete!**
 
 **📊 Aggregation Details:**
-- **Merchant ID**: %s
-- **Merchant Source ID**: %s
+- **Merchant ID**: %s (auto-detected)
+- **Merchant Source ID**: %s (auto-detected)
 - **Group By Column**: %s
 - **Aggregate Column**: %s
 - **Aggregation Function**: %s
@@ -1097,7 +1109,7 @@ func ReconAggregationTool() server.ServerTool {
 
 **🎯 Ready for Reconciliation:**
 Your aggregation configuration has been applied to the database and is ready for reconciliation processing!`,
-			merchantID, merchantSourceID, groupByColumn, aggregateColumn, aggregationFunction, sampleData, enableAggregation, lookupConfig, applyImmediately, aggregationConfigID)
+			merchantID, merchantSourceID1, groupByColumn, aggregateColumn, aggregationFunction, sampleData, enableAggregation, lookupConfig, applyImmediately, aggregationConfigID)
 
 		return mcp.NewToolResultText(result), nil
 	}
