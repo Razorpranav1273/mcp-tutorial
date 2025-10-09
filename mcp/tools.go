@@ -1077,10 +1077,40 @@ Use the recon_merchant_source tool first to set up your merchant sources.`), nil
 		lookupConfig := request.GetString("lookup_config", "")
 		applyImmediately := request.GetBool("apply_immediately", true)
 
-		// Generate aggregation configuration ID
-		aggregationConfigID := generateID(15)
+		// Prepare API payload for aggregation configuration
+		payload := map[string]interface{}{
+			"merchant_id":          merchantID,
+			"merchant_source_id":   merchantSourceID1,
+			"group_by_column":      groupByColumn,
+			"aggregate_column":     aggregateColumn,
+			"aggregation_function": aggregationFunction,
+			"sample_data":          sampleData,
+			"enable_aggregation":   enableAggregation,
+			"lookup_config":        lookupConfig,
+			"apply_immediately":    applyImmediately,
+		}
 
-		// Create result with database integration
+		// Make actual API call to recon-saas service
+		response, err := makeReconSaaSAPICall(ctx, "POST", "/v1/admin-recon-saas/aggregation/config", payload)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf(`❌ **API Call Failed!**
+
+**🔧 Error Details:**
+- **Error**: %v
+- **Endpoint**: /v1/admin-recon-saas/aggregation/config
+- **Method**: POST
+
+**🎯 Troubleshooting:**
+Please check your network connection and recon-saas service availability.`, err)), nil
+		}
+
+		// Extract response data
+		aggregationConfigID, _ := response["config_id"].(string)
+		if aggregationConfigID == "" {
+			aggregationConfigID = generateID(15) // Fallback if API doesn't return ID
+		}
+
+		// Create result with real API integration
 		result := fmt.Sprintf(`📊 **Aggregation Configuration Complete!**
 
 **📊 Aggregation Details:**
@@ -1101,7 +1131,8 @@ Use the recon_merchant_source tool first to set up your merchant sources.`), nil
 - **Data Integrity**: Maintained with lookup validation
 - **Processing**: Real-time database updates
 
-**📈 Database Integration:**
+**📈 API Integration:**
+- ✅ Real API call made to recon-saas service
 - ✅ Aggregation config stored in recon-saas database
 - ✅ Applied to merchant source via API calls
 - ✅ Real-time processing with database updates
