@@ -1252,3 +1252,340 @@ func extractRuleIDs(rules map[string]interface{}) map[string]string {
 
 	return ruleIDs
 }
+
+// Helper functions for aggregation tool
+
+// contains checks if a string slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// performAggregationAnalysis analyzes the file and performs aggregation logic
+func performAggregationAnalysis(filePath, fileType, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction string) (map[string]interface{}, error) {
+	var records [][]string
+	var err error
+
+	// Read file based on type
+	if fileType == "csv" {
+		records, err = readCSVFile(filePath)
+	} else if fileType == "excel" {
+		records, err = readExcelFile(filePath)
+	} else {
+		return nil, fmt.Errorf("unsupported file type: %s", fileType)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %v", err)
+	}
+
+	if len(records) < 2 {
+		return nil, fmt.Errorf("file must have at least a header and one data row")
+	}
+
+	// Get column indices
+	header := records[0]
+	groupingCol1Index := -1
+	groupingCol2Index := -1
+	aggregationColIndex := -1
+
+	for i, col := range header {
+		if col == groupingColumn1 {
+			groupingCol1Index = i
+		}
+		if col == groupingColumn2 {
+			groupingCol2Index = i
+		}
+		if col == aggregationColumn {
+			aggregationColIndex = i
+		}
+	}
+
+	if groupingCol1Index == -1 || groupingCol2Index == -1 || aggregationColIndex == -1 {
+		return nil, fmt.Errorf("one or more required columns not found in file")
+	}
+
+	// Group data by the two grouping columns
+	groupedData := make(map[string][]float64)
+	groupKeys := make([]string, 0)
+
+	for i := 1; i < len(records); i++ {
+		row := records[i]
+		maxIndex := groupingCol1Index
+		if groupingCol2Index > maxIndex {
+			maxIndex = groupingCol2Index
+		}
+		if aggregationColIndex > maxIndex {
+			maxIndex = aggregationColIndex
+		}
+		if len(row) <= maxIndex {
+			continue // Skip incomplete rows
+		}
+
+		groupKey := fmt.Sprintf("%s|%s", row[groupingCol1Index], row[groupingCol2Index])
+
+		// Parse aggregation value
+		value, err := strconv.ParseFloat(row[aggregationColIndex], 64)
+		if err != nil {
+			continue // Skip rows with invalid numeric values
+		}
+
+		if _, exists := groupedData[groupKey]; !exists {
+			groupedData[groupKey] = make([]float64, 0)
+			groupKeys = append(groupKeys, groupKey)
+		}
+		groupedData[groupKey] = append(groupedData[groupKey], value)
+	}
+
+	// Perform aggregation
+	aggregationResults := make([]map[string]interface{}, 0)
+	totalGroups := len(groupKeys)
+
+	for _, groupKey := range groupKeys {
+		values := groupedData[groupKey]
+		keys := strings.Split(groupKey, "|")
+
+		var aggregatedValue float64
+		switch aggregationFunction {
+		case "sum":
+			aggregatedValue = sum(values)
+		case "count":
+			aggregatedValue = float64(len(values))
+		case "avg":
+			aggregatedValue = average(values)
+		case "min":
+			aggregatedValue = min(values)
+		case "max":
+			aggregatedValue = max(values...)
+		default:
+			return nil, fmt.Errorf("unsupported aggregation function: %s", aggregationFunction)
+		}
+
+		aggregationResults = append(aggregationResults, map[string]interface{}{
+			"group_key":             groupKey,
+			"grouping_column_1":     keys[0],
+			"grouping_column_2":     keys[1],
+			"aggregated_value":      aggregatedValue,
+			"original_record_count": len(values),
+			"original_values":       values,
+		})
+	}
+
+	return map[string]interface{}{
+		"total_groups":         totalGroups,
+		"aggregation_function": aggregationFunction,
+		"grouping_columns":     []string{groupingColumn1, groupingColumn2},
+		"aggregation_column":   aggregationColumn,
+		"aggregation_results":  aggregationResults,
+		"summary": map[string]interface{}{
+			"total_records_processed":   len(records) - 1,
+			"groups_created":            totalGroups,
+			"average_records_per_group": float64(len(records)-1) / float64(totalGroups),
+		},
+	}, nil
+}
+
+// updateMasterSourceWithAggregation updates master source with aggregation configuration
+func updateMasterSourceWithAggregation(ctx context.Context, masterSourceID, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction string) error {
+	// Create aggregation config
+	aggregateConfig := map[string]interface{}{
+		"grouping_columns":     []string{groupingColumn1, groupingColumn2},
+		"aggregation_column":   aggregationColumn,
+		"aggregation_function": aggregationFunction,
+		"enabled":              true,
+	}
+
+	payload := map[string]interface{}{
+		"config": map[string]interface{}{
+			"sub_source_config": map[string]interface{}{
+				"aggregate_config":           aggregateConfig,
+				"enable_sub_source_creation": true,
+			},
+		},
+	}
+
+	_, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/sources/update/%s", masterSourceID), payload)
+	return err
+}
+
+// updateLookupWithAggregation updates lookup with aggregation enablement
+func updateLookupWithAggregation(ctx context.Context, lookupID string, enableAggregation bool) error {
+	payload := map[string]interface{}{
+		"config": map[string]interface{}{
+			"enable_aggregation": enableAggregation,
+		},
+	}
+
+	_, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/lookup/%s", lookupID), payload)
+	return err
+}
+
+// updateMerchantReconProcessWithAggregation updates merchant recon process with aggregation configuration
+func updateMerchantReconProcessWithAggregation(ctx context.Context, merchantReconProcessID, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction string) error {
+	// Update report config to include aggregation mapping
+	reportConfig := []map[string]interface{}{
+		{
+			"id":            "",
+			"type":          "",
+			"report_column": "OriginalVID",
+			"source_column": "Entity identifier",
+		},
+		{
+			"id":            "",
+			"type":          "",
+			"report_column": "LoginName",
+			"source_column": "loginname",
+		},
+		{
+			"id":            "",
+			"type":          "",
+			"report_column": "AggregatedValue",
+			"source_column": aggregationColumn,
+		},
+	}
+
+	payload := map[string]interface{}{
+		"report_config": reportConfig,
+		"aggregation_config": map[string]interface{}{
+			"enabled":              true,
+			"grouping_columns":     []string{groupingColumn1, groupingColumn2},
+			"aggregation_column":   aggregationColumn,
+			"aggregation_function": aggregationFunction,
+		},
+	}
+
+	_, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/recon_process/merchant/%s", merchantReconProcessID), payload)
+	return err
+}
+
+// runReconciliation runs reconciliation process to test aggregation
+func runReconciliation(ctx context.Context, merchantReconProcessID string) (map[string]interface{}, error) {
+	payload := map[string]interface{}{
+		"process_id":   merchantReconProcessID,
+		"trigger_type": "manual",
+	}
+
+	result, err := makeReconSaaSAPICall(ctx, "POST", "/v1/admin-recon-saas/recon_process/run", payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"status":       "success",
+		"process_id":   merchantReconProcessID,
+		"execution_id": result["execution_id"],
+		"message":      "Reconciliation process started successfully",
+	}, nil
+}
+
+// Utility functions for aggregation
+func sum(values []float64) float64 {
+	total := 0.0
+	for _, v := range values {
+		total += v
+	}
+	return total
+}
+
+func average(values []float64) float64 {
+	if len(values) == 0 {
+		return 0.0
+	}
+	return sum(values) / float64(len(values))
+}
+
+func min(values []float64) float64 {
+	if len(values) == 0 {
+		return 0.0
+	}
+	minVal := values[0]
+	for _, v := range values {
+		if v < minVal {
+			minVal = v
+		}
+	}
+	return minVal
+}
+
+func max(values ...float64) float64 {
+	if len(values) == 0 {
+		return 0.0
+	}
+	maxVal := values[0]
+	for _, v := range values {
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	return maxVal
+}
+
+// readCSVFile reads a CSV file and returns records
+func readCSVFile(filePath string) ([][]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	return records, nil
+}
+
+// readCSVHeaders reads only the header row from a CSV file
+func readCSVHeaders(filePath string) ([]string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(records) == 0 {
+		return nil, fmt.Errorf("CSV file %s is empty", filePath)
+	}
+
+	return records[0], nil
+}
+
+// readExcelFile reads an Excel file and returns records
+func readExcelFile(filePath string) ([][]string, error) {
+	f, err := excelize.OpenFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	// Get the first sheet
+	sheetName := f.GetSheetName(0)
+	if sheetName == "" {
+		return nil, fmt.Errorf("no sheets found in Excel file")
+	}
+
+	rows, err := f.GetRows(sheetName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to [][]string format
+	records := make([][]string, len(rows))
+	for i, row := range rows {
+		records[i] = row
+	}
+
+	return records, nil
+}

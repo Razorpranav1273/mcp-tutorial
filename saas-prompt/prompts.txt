@@ -1352,6 +1352,113 @@ You are an intelligent MCP server tool designed to create lookup configurations 
 - **URL**: `{{recon-saas_base_url}}/v1/admin-recon-saas/recon_process/merchant`
 - **Method**: POST
 
+### PATCH API Configuration for Aggregation Updates
+
+**Master Source Update Endpoint:**
+- **URL**: `{{recon-saas_base_url}}/v1/admin-recon-saas/sources/update/{{master_source_id}}`
+- **Method**: PATCH
+- **Purpose**: Enable aggregation configuration on existing master source
+- **When to Call**: After master source creation, when user wants to enable data aggregation
+
+**Lookup Update Endpoint:**
+- **URL**: `{{recon-saas_base_url}}/v1/admin-recon-saas/lookup/{{lookup_id}}`
+- **Method**: PATCH
+- **Purpose**: Enable aggregation in lookup configuration
+- **When to Call**: After lookup creation, when user wants to enable aggregation for reconciliation
+
+**Merchant Recon Process Update Endpoint:**
+- **URL**: `{{recon-saas_base_url}}/v1/admin-recon-saas/recon_process/merchant/{{merchant_recon_process_id}}`
+- **Method**: PATCH
+- **Purpose**: Update report configuration with aggregation settings
+- **When to Call**: After merchant recon process creation, when user wants to configure aggregation reporting
+
+### PATCH API Payloads
+
+**Master Source Aggregation Update:**
+```json
+{
+  "config": {
+    "sub_source_config": {
+      "aggregate_config": {
+        "grouping_columns": ["Account_ID", "Entry_Date"],
+        "aggregation_column": "Transaction_Amount",
+        "aggregation_function": "sum",
+        "enabled": true
+      },
+      "enable_sub_source_creation": true
+    }
+  }
+}
+```
+
+**Lookup Aggregation Update:**
+```json
+{
+  "config": {
+    "enable_aggregation": true
+  }
+}
+```
+
+**Merchant Recon Process Aggregation Update:**
+```json
+{
+  "report_config": [
+    {
+      "id": "",
+      "type": "",
+      "report_column": "OriginalVID",
+      "source_column": "Entity identifier"
+    },
+    {
+      "id": "",
+      "type": "",
+      "report_column": "LoginName", 
+      "source_column": "loginname"
+    },
+    {
+      "id": "",
+      "type": "",
+      "report_column": "AggregatedValue",
+      "source_column": "Transaction_Amount"
+    }
+  ],
+  "aggregation_config": {
+    "enabled": true,
+    "grouping_columns": ["Account_ID", "Entry_Date"],
+    "aggregation_column": "Transaction_Amount",
+    "aggregation_function": "sum"
+  }
+}
+```
+
+### When to Call PATCH APIs
+
+**Scenario 1: Enable Aggregation on Existing Setup**
+- User has already created master source, lookup, and merchant recon process
+- User wants to enable aggregation to reduce data volume and improve matching
+- Call all three PATCH APIs in sequence
+
+**Scenario 2: Modify Aggregation Configuration**
+- User wants to change grouping columns or aggregation function
+- Update master source and merchant recon process PATCH APIs
+- Lookup PATCH may not be needed if aggregation is already enabled
+
+**Scenario 3: Disable Aggregation**
+- User wants to turn off aggregation
+- Set `enabled: false` in master source and merchant recon process
+- Set `enable_aggregation: false` in lookup
+
+**API Call Sequence for Aggregation Setup:**
+1. **POST** - Create master source (initial setup)
+2. **POST** - Create lookup (initial setup)  
+3. **POST** - Create master recon process (initial setup)
+4. **POST** - Create merchant recon process (initial setup)
+5. **PATCH** - Update master source with aggregation config
+6. **PATCH** - Update lookup to enable aggregation
+7. **PATCH** - Update merchant recon process with aggregation reporting
+8. **POST** - Run reconciliation to test aggregation
+
 ### Step 1: Lookup Creation
 
 **Lookup API Payload:**

@@ -831,3 +831,212 @@ func ReconProcessSetupTool() server.ServerTool {
 		Handler: handler,
 	}
 }
+
+// ReconAggregationTool Aggregation tool for recon-saas data processing
+func ReconAggregationTool() server.ServerTool {
+	tool := mcp.NewTool("recon_aggregation",
+		mcp.WithDescription("Configure aggregation logic for reconciliation data processing"),
+		mcp.WithString("file1_path",
+			mcp.Description("Full file path to the first reconciliation file (e.g., /path/to/transactions.csv or /path/to/transactions.xlsx)"),
+			mcp.Required(),
+		),
+		mcp.WithString("file1_type",
+			mcp.Description("Type of the first file"),
+			mcp.Required(),
+			mcp.Enum("csv", "excel"),
+		),
+		mcp.WithString("file2_path",
+			mcp.Description("Full file path to the second reconciliation file (e.g., /path/to/bank_statements.csv or /path/to/bank_statements.xlsx)"),
+			mcp.Required(),
+		),
+		mcp.WithString("file2_type",
+			mcp.Description("Type of the second file"),
+			mcp.Required(),
+			mcp.Enum("csv", "excel"),
+		),
+		mcp.WithString("aggregation_column",
+			mcp.Description("Column to aggregate (e.g., Transaction_Amount)"),
+			mcp.Required(),
+		),
+		mcp.WithString("aggregation_function",
+			mcp.Description("Aggregation function to apply"),
+			mcp.Required(),
+			mcp.Enum("sum", "count", "avg", "min", "max"),
+		),
+		mcp.WithString("grouping_column_1",
+			mcp.Description("First column for grouping/clustering (e.g., Account_ID)"),
+			mcp.Required(),
+		),
+		mcp.WithString("grouping_column_2",
+			mcp.Description("Second column for grouping/clustering (e.g., Entry_Date)"),
+			mcp.Required(),
+		),
+		mcp.WithString("lookup_id",
+			mcp.Description("Lookup ID to update"),
+			mcp.Required(),
+		),
+		mcp.WithString("master_source_id",
+			mcp.Description("Master source ID to update"),
+			mcp.Required(),
+		),
+		mcp.WithString("merchant_id",
+			mcp.Description("Merchant identifier"),
+			mcp.Required(),
+		),
+		mcp.WithString("merchant_recon_process_id",
+			mcp.Description("Merchant reconciliation process ID to update"),
+			mcp.Required(),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		file1Path, err := request.RequireString("file1_path")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		file2Path, err := request.RequireString("file2_path")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		file1Type, err := request.RequireString("file1_type")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		file2Type, err := request.RequireString("file2_type")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		groupingColumn1, err := request.RequireString("grouping_column_1")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		groupingColumn2, err := request.RequireString("grouping_column_2")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		aggregationColumn, err := request.RequireString("aggregation_column")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		aggregationFunction, err := request.RequireString("aggregation_function")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		_, err = request.RequireString("merchant_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		masterSourceID, err := request.RequireString("master_source_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		merchantReconProcessID, err := request.RequireString("merchant_recon_process_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		lookupID, err := request.RequireString("lookup_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		// Read file 1 to get columns directly
+		var file1Columns []string
+		if file1Type == "csv" {
+			file1Columns, err = readCSVHeaders(file1Path)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to read file 1 headers: %v", err)), nil
+			}
+		} else {
+			return mcp.NewToolResultError("Only CSV files are supported for aggregation"), nil
+		}
+
+		// Read file 2 to get columns directly
+		if file2Type == "csv" {
+			_, err = readCSVHeaders(file2Path)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Failed to read file 2 headers: %v", err)), nil
+			}
+		} else {
+			return mcp.NewToolResultError("Only CSV files are supported for aggregation"), nil
+		}
+
+		// Validate grouping columns exist in file 1 (non-streaming source)
+		if !contains(file1Columns, groupingColumn1) {
+			return mcp.NewToolResultError(fmt.Sprintf("Grouping column '%s' not found in file 1", groupingColumn1)), nil
+		}
+		if !contains(file1Columns, groupingColumn2) {
+			return mcp.NewToolResultError(fmt.Sprintf("Grouping column '%s' not found in file 1", groupingColumn2)), nil
+		}
+		if !contains(file1Columns, aggregationColumn) {
+			return mcp.NewToolResultError(fmt.Sprintf("Aggregation column '%s' not found in file 1", aggregationColumn)), nil
+		}
+
+		// Perform aggregation analysis
+		aggregationResult, err := performAggregationAnalysis(file1Path, file1Type, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to perform aggregation analysis: %v", err)), nil
+		}
+
+		// Update master source with aggregation configuration
+		err = updateMasterSourceWithAggregation(ctx, masterSourceID, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to update master source: %v", err)), nil
+		}
+
+		// Update lookup with aggregation enablement
+		err = updateLookupWithAggregation(ctx, lookupID, true)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to update lookup: %v", err)), nil
+		}
+
+		// Update merchant recon process with aggregation configuration
+		err = updateMerchantReconProcessWithAggregation(ctx, merchantReconProcessID, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to update merchant recon process: %v", err)), nil
+		}
+
+		// Run reconciliation to test the aggregation
+		reconResult, err := runReconciliation(ctx, merchantReconProcessID)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to run reconciliation: %v", err)), nil
+		}
+
+		result := map[string]interface{}{
+			"status":  "success",
+			"message": "Aggregation configuration completed successfully",
+			"aggregation_config": map[string]interface{}{
+				"grouping_columns":     []string{groupingColumn1, groupingColumn2},
+				"aggregation_column":   aggregationColumn,
+				"aggregation_function": aggregationFunction,
+				"source_file":          file1Path,
+			},
+			"aggregation_analysis": aggregationResult,
+			"api_updates": map[string]interface{}{
+				"master_source_updated":          true,
+				"lookup_updated":                 true,
+				"merchant_recon_process_updated": true,
+			},
+			"reconciliation_result": reconResult,
+			"timestamp":             time.Now().Format(time.RFC3339),
+		}
+
+		resultJSON, _ := json.MarshalIndent(result, "", "  ")
+		return mcp.NewToolResultText(string(resultJSON)), nil
+	}
+
+	return server.ServerTool{
+		Tool:    tool,
+		Handler: handler,
+	}
+}

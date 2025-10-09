@@ -865,3 +865,108 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 		Handler: handler,
 	}
 }
+
+// ReconAggregationPrompt Aggregation configuration prompt for recon-saas data processing
+func ReconAggregationPrompt() server.ServerPrompt {
+	prompt := mcp.NewPrompt("recon_aggregation_prompt",
+		mcp.WithPromptDescription("Configure aggregation logic for reconciliation data processing with grouping and aggregation functions"),
+		mcp.WithArgument("aggregation_type",
+			mcp.ArgumentDescription("Type of aggregation to perform (financial, transactional, operational, custom)"),
+		),
+		mcp.WithArgument("grouping_strategy",
+			mcp.ArgumentDescription("Strategy for grouping records (date_based, entity_based, hybrid, custom)"),
+		),
+		mcp.WithArgument("aggregation_function",
+			mcp.ArgumentDescription("Primary aggregation function to apply (sum, count, avg, min, max)"),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		aggregationType := "financial"
+		if at, exists := request.Params.Arguments["aggregation_type"]; exists && at != "" {
+			aggregationType = at
+		}
+
+		groupingStrategy := "entity_based"
+		if gs, exists := request.Params.Arguments["grouping_strategy"]; exists && gs != "" {
+			groupingStrategy = gs
+		}
+
+		aggregationFunction := "sum"
+		if af, exists := request.Params.Arguments["aggregation_function"]; exists && af != "" {
+			aggregationFunction = af
+		}
+
+		elaboratePrompt := fmt.Sprintf(`You are an intelligent MCP server tool designed to configure aggregation logic for reconciliation data processing in recon-saas. Your responsibility is to set up aggregation configurations that group and aggregate data from reconciliation files to improve matching accuracy and reduce processing complexity.
+
+**CORE RESPONSIBILITIES:**
+
+**Aggregation Configuration:**
+- Configure %s aggregation for %s grouping strategy
+- Apply %s function for data aggregation
+- Enable aggregation only on non-streaming sources (first file)
+- Update master source, lookup, and merchant recon process configurations
+
+**Key Requirements:**
+- Aggregation works ONLY on the first file (non-streaming source)
+- Requires two grouping columns for unique identifier creation
+- One aggregation column for applying the aggregation function
+- Updates three API endpoints with PATCH calls
+
+**API Updates Required:**
+1. **Master Source Update**: Update mapping_config with entity identifier mapping
+2. **Lookup Update**: Enable aggregation in lookup_config
+3. **Merchant Recon Process Update**: Update report_config with aggregation settings
+
+**Column Mapping Logic:**
+- Source columns become entity identifiers through reverse mapping
+- Report columns maintain original VID for error detection
+- Aggregation column gets mapped to "AggregatedValue" in report
+
+**Example Use Case:**
+For bank statements with Account_ID + Entry_Date grouping:
+- Groups records by Account_ID and Entry_Date combinations
+- Sums Transaction_Amount for each group
+- Creates unique identifiers for reconciliation matching
+- Reduces data volume while maintaining reconciliation accuracy
+
+**Error Handling:**
+- Validate all required columns exist in the first file
+- Provide detailed error messages for missing columns
+- Suggest why aggregation logic might be failing
+- Handle API call failures gracefully
+
+**Required Parameters:**
+- file1_path, file2_path: File paths for reconciliation files
+- file1_type, file2_type: File types (csv/excel)
+- grouping_column_1, grouping_column_2: Columns for grouping/clustering
+- aggregation_column: Column to aggregate
+- aggregation_function: Function to apply (sum/count/avg/min/max)
+- merchant_id, master_source_id, merchant_recon_process_id, lookup_id: IDs for API updates
+
+**Success Criteria:**
+- All three PATCH API calls succeed
+- Aggregation analysis completes successfully
+- Reconciliation process runs without errors
+- Data is properly grouped and aggregated
+
+Always ensure that aggregation configuration maintains data integrity while improving reconciliation performance through intelligent data grouping and aggregation.`, aggregationType, groupingStrategy, aggregationFunction)
+
+		messages := []mcp.PromptMessage{
+			mcp.NewPromptMessage(
+				mcp.RoleUser,
+				mcp.NewTextContent(elaboratePrompt),
+			),
+		}
+
+		return mcp.NewGetPromptResult(
+			fmt.Sprintf("Recon-SaaS Aggregation: %s (%s grouping, %s function)", aggregationType, groupingStrategy, aggregationFunction),
+			messages,
+		), nil
+	}
+
+	return server.ServerPrompt{
+		Prompt:  prompt,
+		Handler: handler,
+	}
+}
