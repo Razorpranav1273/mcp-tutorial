@@ -870,26 +870,72 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 func ReconAggregationPrompt() server.ServerPrompt {
 	prompt := mcp.NewPrompt("aggregation_guide",
 		mcp.WithPromptDescription("Configure aggregation logic for reconciliation data processing with grouping and aggregation functions"),
-		mcp.WithArgument("aggregation_type",
-			mcp.ArgumentDescription("Type of aggregation to perform (financial, transactional, operational, custom)"),
+		mcp.WithArgument("file1_path",
+			mcp.ArgumentDescription("Full file path to the first reconciliation file (this will be used for aggregation)"),
 		),
-		mcp.WithArgument("grouping_strategy",
-			mcp.ArgumentDescription("Strategy for grouping records (date_based, entity_based, hybrid, custom)"),
+		mcp.WithArgument("file2_path",
+			mcp.ArgumentDescription("Full file path to the second reconciliation file"),
+		),
+		mcp.WithArgument("grouping_column_1",
+			mcp.ArgumentDescription("First column for grouping/clustering (e.g., Account_ID)"),
+		),
+		mcp.WithArgument("grouping_column_2",
+			mcp.ArgumentDescription("Second column for grouping/clustering (e.g., Entry_Date)"),
+		),
+		mcp.WithArgument("aggregation_column",
+			mcp.ArgumentDescription("Column to aggregate (e.g., Transaction_Amount)"),
 		),
 		mcp.WithArgument("aggregation_function",
-			mcp.ArgumentDescription("Primary aggregation function to apply (sum, count, avg, min, max)"),
+			mcp.ArgumentDescription("Aggregation function to apply (sum, count, avg, min, max)"),
+		),
+		mcp.WithArgument("merchant_id",
+			mcp.ArgumentDescription("Merchant identifier"),
+		),
+		mcp.WithArgument("master_source_id",
+			mcp.ArgumentDescription("Master source ID to update"),
+		),
+		mcp.WithArgument("merchant_recon_process_id",
+			mcp.ArgumentDescription("Merchant reconciliation process ID to update"),
+		),
+		mcp.WithArgument("lookup_id",
+			mcp.ArgumentDescription("Lookup ID to update"),
 		),
 	)
 
 	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		aggregationType := "financial"
-		if at, exists := request.Params.Arguments["aggregation_type"]; exists && at != "" {
-			aggregationType = at
+		file1Path := ""
+		if fp1, exists := request.Params.Arguments["file1_path"]; exists && fp1 != "" {
+			file1Path = fp1
 		}
 
-		groupingStrategy := "entity_based"
-		if gs, exists := request.Params.Arguments["grouping_strategy"]; exists && gs != "" {
-			groupingStrategy = gs
+		file2Path := ""
+		if fp2, exists := request.Params.Arguments["file2_path"]; exists && fp2 != "" {
+			file2Path = fp2
+		}
+
+		file1Type := "csv"
+		if ft1, exists := request.Params.Arguments["file1_type"]; exists && ft1 != "" {
+			file1Type = ft1
+		}
+
+		file2Type := "csv"
+		if ft2, exists := request.Params.Arguments["file2_type"]; exists && ft2 != "" {
+			file2Type = ft2
+		}
+
+		groupingColumn1 := ""
+		if gc1, exists := request.Params.Arguments["grouping_column_1"]; exists && gc1 != "" {
+			groupingColumn1 = gc1
+		}
+
+		groupingColumn2 := ""
+		if gc2, exists := request.Params.Arguments["grouping_column_2"]; exists && gc2 != "" {
+			groupingColumn2 = gc2
+		}
+
+		aggregationColumn := ""
+		if ac, exists := request.Params.Arguments["aggregation_column"]; exists && ac != "" {
+			aggregationColumn = ac
 		}
 
 		aggregationFunction := "sum"
@@ -897,15 +943,45 @@ func ReconAggregationPrompt() server.ServerPrompt {
 			aggregationFunction = af
 		}
 
+		merchantID := ""
+		if mid, exists := request.Params.Arguments["merchant_id"]; exists && mid != "" {
+			merchantID = mid
+		}
+
+		masterSourceID := ""
+		if msid, exists := request.Params.Arguments["master_source_id"]; exists && msid != "" {
+			masterSourceID = msid
+		}
+
+		merchantReconProcessID := ""
+		if mrpid, exists := request.Params.Arguments["merchant_recon_process_id"]; exists && mrpid != "" {
+			merchantReconProcessID = mrpid
+		}
+
+		lookupID := ""
+		if lid, exists := request.Params.Arguments["lookup_id"]; exists && lid != "" {
+			lookupID = lid
+		}
+
 		elaboratePrompt := fmt.Sprintf(`You are an intelligent MCP server tool designed to configure aggregation logic for reconciliation data processing in recon-saas. Your responsibility is to set up aggregation configurations that group and aggregate data from reconciliation files to improve matching accuracy and reduce processing complexity.
 
 **CORE RESPONSIBILITIES:**
 
+**File Processing:**
+- First file (%s): %s - This file will be used for aggregation
+- Second file (%s): %s - This file will be used for reconciliation matching
+- File types: %s and %s
+
 **Aggregation Configuration:**
-- Configure %s aggregation for %s grouping strategy
-- Apply %s function for data aggregation
-- Enable aggregation only on non-streaming sources (first file)
-- Update master source, lookup, and merchant recon process configurations
+- Group by: %s + %s (creates unique identifiers)
+- Aggregate column: %s
+- Aggregation function: %s
+- Enable aggregation only on the first file (non-streaming source)
+
+**API Updates Required:**
+1. **Master Source Update**: Update mapping_config with entity identifier mapping
+2. **Lookup Update**: Enable aggregation in lookup_config  
+3. **Merchant Recon Process Update**: Update report_config with aggregation settings
 
 **Key Requirements:**
 - Aggregation works ONLY on the first file (non-streaming source)
@@ -913,20 +989,15 @@ func ReconAggregationPrompt() server.ServerPrompt {
 - One aggregation column for applying the aggregation function
 - Updates three API endpoints with PATCH calls
 
-**API Updates Required:**
-1. **Master Source Update**: Update mapping_config with entity identifier mapping
-2. **Lookup Update**: Enable aggregation in lookup_config
-3. **Merchant Recon Process Update**: Update report_config with aggregation settings
-
 **Column Mapping Logic:**
 - Source columns become entity identifiers through reverse mapping
 - Report columns maintain original VID for error detection
 - Aggregation column gets mapped to "AggregatedValue" in report
 
 **Example Use Case:**
-For bank statements with Account_ID + Entry_Date grouping:
-- Groups records by Account_ID and Entry_Date combinations
-- Sums Transaction_Amount for each group
+For your files with %s + %s grouping:
+- Groups records by %s and %s combinations
+- Applies %s function to %s column for each group
 - Creates unique identifiers for reconciliation matching
 - Reduces data volume while maintaining reconciliation accuracy
 
@@ -937,12 +1008,18 @@ For bank statements with Account_ID + Entry_Date grouping:
 - Handle API call failures gracefully
 
 **Required Parameters:**
-- file1_path, file2_path: File paths for reconciliation files
-- file1_type, file2_type: File types (csv/excel)
-- grouping_column_1, grouping_column_2: Columns for grouping/clustering
-- aggregation_column: Column to aggregate
-- aggregation_function: Function to apply (sum/count/avg/min/max)
-- merchant_id, master_source_id, merchant_recon_process_id, lookup_id: IDs for API updates
+- file1_path: %s
+- file2_path: %s
+- file1_type: %s
+- file2_type: %s
+- grouping_column_1: %s
+- grouping_column_2: %s
+- aggregation_column: %s
+- aggregation_function: %s
+- merchant_id: %s
+- master_source_id: %s
+- merchant_recon_process_id: %s
+- lookup_id: %s
 
 **Success Criteria:**
 - All three PATCH API calls succeed
@@ -950,7 +1027,12 @@ For bank statements with Account_ID + Entry_Date grouping:
 - Reconciliation process runs without errors
 - Data is properly grouped and aggregated
 
-Always ensure that aggregation configuration maintains data integrity while improving reconciliation performance through intelligent data grouping and aggregation.`, aggregationType, groupingStrategy, aggregationFunction)
+Always ensure that aggregation configuration maintains data integrity while improving reconciliation performance through intelligent data grouping and aggregation.`,
+			file1Type, file1Path, file2Type, file2Path, file1Type, file2Type,
+			groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction,
+			groupingColumn1, groupingColumn2, groupingColumn1, groupingColumn2, aggregationFunction, aggregationColumn,
+			file1Path, file2Path, file1Type, file2Type, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction,
+			merchantID, masterSourceID, merchantReconProcessID, lookupID)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -960,7 +1042,7 @@ Always ensure that aggregation configuration maintains data integrity while impr
 		}
 
 		return mcp.NewGetPromptResult(
-			fmt.Sprintf("Recon-SaaS Aggregation: %s (%s grouping, %s function)", aggregationType, groupingStrategy, aggregationFunction),
+			fmt.Sprintf("Recon-SaaS Aggregation: %s + %s grouping with %s(%s)", groupingColumn1, groupingColumn2, aggregationFunction, aggregationColumn),
 			messages,
 		), nil
 	}
