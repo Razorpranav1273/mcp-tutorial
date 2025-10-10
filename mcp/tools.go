@@ -876,13 +876,16 @@ func ReconAggregationTool() server.ServerTool {
 			mcp.Required(),
 		),
 		mcp.WithString("master_source_id",
-			mcp.Description("Master source ID to update (leave empty to auto-fetch)"),
+			mcp.Description("Master source ID to update"),
+			mcp.Required(),
 		),
 		mcp.WithString("merchant_recon_process_id",
-			mcp.Description("Merchant reconciliation process ID to update (leave empty to auto-fetch)"),
+			mcp.Description("Merchant reconciliation process ID to update"),
+			mcp.Required(),
 		),
 		mcp.WithString("lookup_id",
-			mcp.Description("Lookup ID to update (leave empty to auto-fetch)"),
+			mcp.Description("Lookup ID to update"),
+			mcp.Required(),
 		),
 	)
 
@@ -932,51 +935,19 @@ func ReconAggregationTool() server.ServerTool {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		// Get optional IDs or fetch them automatically
-		masterSourceID := request.GetString("master_source_id", "")
-		merchantReconProcessID := request.GetString("merchant_recon_process_id", "")
-		lookupID := request.GetString("lookup_id", "")
+		masterSourceID, err := request.RequireString("master_source_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 
-		// If any ID is missing, fetch all available IDs
-		if masterSourceID == "" || merchantReconProcessID == "" || lookupID == "" {
-			availableIDs, err := getAvailableIDs(ctx, merchantID)
-			if err != nil {
-				return mcp.NewToolResultError(fmt.Sprintf("Failed to fetch available IDs: %v", err)), nil
-			}
+		merchantReconProcessID, err := request.RequireString("merchant_recon_process_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
 
-			// Auto-select IDs if not provided
-			if masterSourceID == "" {
-				if merchantSources, ok := availableIDs["merchant_sources"].([]map[string]interface{}); ok && len(merchantSources) > 0 {
-					if id, exists := merchantSources[0]["id"].(string); exists {
-						masterSourceID = id
-					}
-				}
-				if masterSourceID == "" {
-					return mcp.NewToolResultError("No master source found for merchant. Please create one first or provide master_source_id manually."), nil
-				}
-			}
-
-			if lookupID == "" {
-				if lookups, ok := availableIDs["lookups"].([]map[string]interface{}); ok && len(lookups) > 0 {
-					if id, exists := lookups[0]["id"].(string); exists {
-						lookupID = id
-					}
-				}
-				if lookupID == "" {
-					return mcp.NewToolResultError("No lookup found for merchant. Please create one first or provide lookup_id manually."), nil
-				}
-			}
-
-			if merchantReconProcessID == "" {
-				if processes, ok := availableIDs["recon_processes"].([]map[string]interface{}); ok && len(processes) > 0 {
-					if id, exists := processes[0]["id"].(string); exists {
-						merchantReconProcessID = id
-					}
-				}
-				if merchantReconProcessID == "" {
-					return mcp.NewToolResultError("No reconciliation process found for merchant. Please create one first or provide merchant_recon_process_id manually."), nil
-				}
-			}
+		lookupID, err := request.RequireString("lookup_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 
 		// Read file 1 to get columns directly
@@ -1035,10 +1006,10 @@ func ReconAggregationTool() server.ServerTool {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to update merchant recon process: %v", err)), nil
 		}
 
-		// Run reconciliation to test the aggregation
-		reconResult, err := runReconciliation(ctx, merchantReconProcessID)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to run reconciliation: %v", err)), nil
+		// Skip reconciliation for now (endpoint doesn't exist)
+		reconResult := map[string]interface{}{
+			"status":  "skipped",
+			"message": "Reconciliation step skipped - endpoint not available",
 		}
 
 		result := map[string]interface{}{
@@ -1057,10 +1028,10 @@ func ReconAggregationTool() server.ServerTool {
 				"merchant_recon_process_updated": true,
 			},
 			"used_ids": map[string]interface{}{
-				"merchant_id":                   merchantID,
-				"master_source_id":              masterSourceID,
-				"merchant_recon_process_id":     merchantReconProcessID,
-				"lookup_id":                     lookupID,
+				"merchant_id":               merchantID,
+				"master_source_id":          masterSourceID,
+				"merchant_recon_process_id": merchantReconProcessID,
+				"lookup_id":                 lookupID,
 			},
 			"reconciliation_result": reconResult,
 			"timestamp":             time.Now().Format(time.RFC3339),

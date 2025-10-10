@@ -948,97 +948,81 @@ func ReconAggregationPrompt() server.ServerPrompt {
 			merchantID = mid
 		}
 
-		masterSourceID := ""
-		if msid, exists := request.Params.Arguments["master_source_id"]; exists && msid != "" {
-			masterSourceID = msid
-		}
+		// Note: master_source_id, merchant_recon_process_id, and lookup_id are required parameters
+		// They will be provided when calling the aggregation_tool
 
-		merchantReconProcessID := ""
-		if mrpid, exists := request.Params.Arguments["merchant_recon_process_id"]; exists && mrpid != "" {
-			merchantReconProcessID = mrpid
-		}
+		elaboratePrompt := fmt.Sprintf(`# 🔧 Recon-SaaS Aggregation Configuration Guide
 
-		lookupID := ""
-		if lid, exists := request.Params.Arguments["lookup_id"]; exists && lid != "" {
-			lookupID = lid
-		}
+Welcome! I'll help you set up aggregation logic for your reconciliation data processing. Let me guide you through the process step by step.
 
-		elaboratePrompt := fmt.Sprintf(`You are an intelligent MCP server tool designed to configure aggregation logic for reconciliation data processing in recon-saas. Your responsibility is to set up aggregation configurations that group and aggregate data from reconciliation files to improve matching accuracy and reduce processing complexity.
+## 📋 **Step 1: File Information**
 
-**CORE RESPONSIBILITIES:**
+**First File (for aggregation):**
+- Path: %s
+- Type: %s
+- Purpose: This file will be used for aggregation logic
 
-**File Processing:**
-- First file (%s): %s - This file will be used for aggregation
-- Second file (%s): %s - This file will be used for reconciliation matching
-- File types: %s and %s
+**Second File (for reconciliation matching):**
+- Path: %s  
+- Type: %s
+- Purpose: This file will be used for reconciliation matching
 
-**Aggregation Configuration:**
-- Group by: %s + %s (creates unique identifiers)
-- Aggregate column: %s
-- Aggregation function: %s
-- Enable aggregation only on the first file (non-streaming source)
+## 🎯 **Step 2: Aggregation Configuration**
 
-**API Updates Required:**
-1. **Master Source Update**: Update mapping_config with entity identifier mapping
-2. **Lookup Update**: Enable aggregation in lookup_config  
-3. **Merchant Recon Process Update**: Update report_config with aggregation settings
+**Grouping Strategy:**
+- Primary Grouping Column: %s
+- Secondary Grouping Column: %s
+- This creates unique identifiers for better matching
 
-**Key Requirements:**
-- Aggregation works ONLY on the first file (non-streaming source)
-- Requires two grouping columns for unique identifier creation
-- One aggregation column for applying the aggregation function
-- Updates three API endpoints with PATCH calls
+**Aggregation Settings:**
+- Column to Aggregate: %s
+- Aggregation Function: %s
+- Result: Groups records and applies the function to create aggregated values
 
-**Column Mapping Logic:**
-- Source columns become entity identifiers through reverse mapping
-- Report columns maintain original VID for error detection
-- Aggregation column gets mapped to "AggregatedValue" in report
+## 🔄 **Step 3: How Aggregation Works**
 
-**Example Use Case:**
-For your files with %s + %s grouping:
-- Groups records by %s and %s combinations
-- Applies %s function to %s column for each group
-- Creates unique identifiers for reconciliation matching
-- Reduces data volume while maintaining reconciliation accuracy
+**Example with your data:**
+- Groups by: %s + %s combinations
+- Applies: %s function to %s column
+- Creates: Unique identifiers for reconciliation
+- Reduces: Data volume while maintaining accuracy
 
-**Error Handling:**
-- Validate all required columns exist in the first file
-- Provide detailed error messages for missing columns
-- Suggest why aggregation logic might be failing
-- Handle API call failures gracefully
+**Sample Result:**
+- ACC001|2024-01-15 → Sum of all Transaction_Amount for this group
+- ACC001|2024-01-16 → Sum of all Transaction_Amount for this group
 
-**Required Parameters:**
-- file1_path: %s
-- file2_path: %s
-- file1_type: %s
-- file2_type: %s
-- grouping_column_1: %s
-- grouping_column_2: %s
-- aggregation_column: %s
-- aggregation_function: %s
-- merchant_id: %s (REQUIRED - used to auto-fetch other IDs)
+## ⚙️ **Step 4: API Configuration**
 
-**Optional Parameters (Auto-fetched if empty):**
-- master_source_id: %s (leave empty to auto-fetch)
-- merchant_recon_process_id: %s (leave empty to auto-fetch)
-- lookup_id: %s (leave empty to auto-fetch)
+The system will automatically:
+1. **Update Master Source** - Add aggregation configuration
+2. **Update Lookup** - Enable aggregation flag
+3. **Update Merchant Recon Process** - Add aggregation to report config
 
-**Auto-Fetch Feature:**
-- If you leave master_source_id, merchant_recon_process_id, or lookup_id empty, the tool will automatically fetch the first available ID for each from your merchant account
-- This makes the tool much easier to use - you only need to provide the merchant_id!
+## 🚀 **Step 5: Ready to Execute**
 
-**Success Criteria:**
-- All three PATCH API calls succeed
-- Aggregation analysis completes successfully
-- Reconciliation process runs without errors
-- Data is properly grouped and aggregated
+**Required Information:**
+- ✅ File paths: %s, %s
+- ✅ File types: %s, %s
+- ✅ Grouping columns: %s, %s
+- ✅ Aggregation column: %s
+- ✅ Aggregation function: %s
+- ✅ Merchant ID: %s
 
-Always ensure that aggregation configuration maintains data integrity while improving reconciliation performance through intelligent data grouping and aggregation.`,
-			file1Type, file1Path, file2Type, file2Path, file1Type, file2Type,
+**Next Step:** Use the **aggregation_tool** with these parameters to execute the aggregation setup.
+
+## 📊 **Expected Results**
+
+After successful execution, you'll get:
+- Aggregated data analysis
+- API update confirmations
+- Grouped records with unique identifiers
+- Improved reconciliation performance
+
+**Ready to proceed? Use the aggregation_tool with the parameters above!**`,
+			file1Path, file1Type, file2Path, file2Type,
 			groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction,
-			groupingColumn1, groupingColumn2, groupingColumn1, groupingColumn2, aggregationFunction, aggregationColumn,
-			file1Path, file2Path, file1Type, file2Type, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction,
-			merchantID, masterSourceID, merchantReconProcessID, lookupID)
+			groupingColumn1, groupingColumn2, aggregationFunction, aggregationColumn,
+			file1Path, file2Path, file1Type, file2Type, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction, merchantID)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -1048,7 +1032,7 @@ Always ensure that aggregation configuration maintains data integrity while impr
 		}
 
 		return mcp.NewGetPromptResult(
-			fmt.Sprintf("Recon-SaaS Aggregation: %s + %s grouping with %s(%s)", groupingColumn1, groupingColumn2, aggregationFunction, aggregationColumn),
+			fmt.Sprintf("🔧 Aggregation Setup Guide: %s + %s grouping with %s(%s)", groupingColumn1, groupingColumn2, aggregationFunction, aggregationColumn),
 			messages,
 		), nil
 	}

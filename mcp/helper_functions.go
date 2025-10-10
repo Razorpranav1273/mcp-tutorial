@@ -709,19 +709,19 @@ func fetchMerchantSources(ctx context.Context, merchantID string) ([]map[string]
 	if err != nil {
 		return nil, err
 	}
-	
+
 	sources, ok := result["sources"].([]interface{})
 	if !ok {
 		return nil, fmt.Errorf("invalid response format for merchant sources")
 	}
-	
+
 	var merchantSources []map[string]interface{}
 	for _, source := range sources {
 		if sourceMap, ok := source.(map[string]interface{}); ok {
 			merchantSources = append(merchantSources, sourceMap)
 		}
 	}
-	
+
 	return merchantSources, nil
 }
 
@@ -732,19 +732,19 @@ func fetchLookups(ctx context.Context, merchantID string) ([]map[string]interfac
 	if err != nil {
 		return nil, err
 	}
-	
+
 	lookups, ok := result["lookups"].([]interface{})
 	if !ok {
 		return nil, fmt.Errorf("invalid response format for lookups")
 	}
-	
+
 	var lookupList []map[string]interface{}
 	for _, lookup := range lookups {
 		if lookupMap, ok := lookup.(map[string]interface{}); ok {
 			lookupList = append(lookupList, lookupMap)
 		}
 	}
-	
+
 	return lookupList, nil
 }
 
@@ -755,19 +755,19 @@ func fetchMerchantReconProcesses(ctx context.Context, merchantID string) ([]map[
 	if err != nil {
 		return nil, err
 	}
-	
+
 	processes, ok := result["processes"].([]interface{})
 	if !ok {
 		return nil, fmt.Errorf("invalid response format for recon processes")
 	}
-	
+
 	var processList []map[string]interface{}
 	for _, process := range processes {
 		if processMap, ok := process.(map[string]interface{}); ok {
 			processList = append(processList, processMap)
 		}
 	}
-	
+
 	return processList, nil
 }
 
@@ -777,26 +777,26 @@ func getAvailableIDs(ctx context.Context, merchantID string) (map[string]interfa
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch merchant sources: %v", err)
 	}
-	
+
 	lookups, err := fetchLookups(ctx, merchantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch lookups: %v", err)
 	}
-	
+
 	reconProcesses, err := fetchMerchantReconProcesses(ctx, merchantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch recon processes: %v", err)
 	}
-	
+
 	return map[string]interface{}{
 		"merchant_sources": merchantSources,
 		"lookups":          lookups,
 		"recon_processes":  reconProcesses,
 		"summary": map[string]interface{}{
-			"merchant_id":           merchantID,
+			"merchant_id":            merchantID,
 			"merchant_sources_count": len(merchantSources),
-			"lookups_count":         len(lookups),
-			"recon_processes_count": len(reconProcesses),
+			"lookups_count":          len(lookups),
+			"recon_processes_count":  len(reconProcesses),
 		},
 	}, nil
 }
@@ -1514,8 +1514,10 @@ func updateMasterSourceWithAggregation(ctx context.Context, masterSourceID, grou
 // updateLookupWithAggregation updates lookup with aggregation enablement
 func updateLookupWithAggregation(ctx context.Context, lookupID string, enableAggregation bool) error {
 	payload := map[string]interface{}{
-		"config": map[string]interface{}{
-			"enable_aggregation": enableAggregation,
+		"config": []map[string]interface{}{
+			{
+				"enable_aggregation": enableAggregation,
+			},
 		},
 	}
 
@@ -1548,7 +1550,9 @@ func updateMerchantReconProcessWithAggregation(ctx context.Context, merchantReco
 	}
 
 	payload := map[string]interface{}{
-		"report_config": reportConfig,
+		"report_config": map[string]interface{}{
+			"column_mappings": reportConfig,
+		},
 		"aggregation_config": map[string]interface{}{
 			"enabled":              true,
 			"grouping_columns":     []string{groupingColumn1, groupingColumn2},
@@ -1568,7 +1572,7 @@ func runReconciliation(ctx context.Context, merchantReconProcessID string) (map[
 		"trigger_type": "manual",
 	}
 
-	result, err := makeReconSaaSAPICall(ctx, "POST", "/v1/admin-recon-saas/recon_process/run", payload)
+	result, err := makeReconSaaSAPICall(ctx, "POST", fmt.Sprintf("/v1/admin-recon-saas/recon_process/merchant/%s/run", merchantReconProcessID), payload)
 	if err != nil {
 		return nil, err
 	}
