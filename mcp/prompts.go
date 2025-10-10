@@ -868,7 +868,7 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 
 // ReconAggregationPrompt Aggregation configuration prompt for recon-saas data processing
 func ReconAggregationPrompt() server.ServerPrompt {
-	prompt := mcp.NewPrompt("recon_aggregation",
+	prompt := mcp.NewPrompt("aggregation_guide",
 		mcp.WithPromptDescription("Configure aggregation logic for reconciliation data processing with grouping and aggregation functions"),
 		mcp.WithArgument("aggregation_type",
 			mcp.ArgumentDescription("Type of aggregation to perform (financial, transactional, operational, custom)"),

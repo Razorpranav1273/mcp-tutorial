@@ -834,7 +834,7 @@ func ReconProcessSetupTool() server.ServerTool {
 
 // ReconAggregationTool Aggregation tool for recon-saas data processing
 func ReconAggregationTool() server.ServerTool {
-	tool := mcp.NewTool("recon_aggregation",
+	tool := mcp.NewTool("aggregation_tool",
 		mcp.WithDescription("Configure aggregation logic for reconciliation data processing"),
 		mcp.WithString("file1_path",
 			mcp.Description("Full file path to the first reconciliation file (e.g., /path/to/transactions.csv or /path/to/transactions.xlsx)"),
