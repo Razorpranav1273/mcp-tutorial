@@ -702,6 +702,105 @@ func makeReconSaaSAPICallString(ctx context.Context, method, endpoint string, pa
 	return responseStr, nil
 }
 
+// fetchMerchantSources fetches merchant sources for a given merchant
+func fetchMerchantSources(ctx context.Context, merchantID string) ([]map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/v1/admin-recon-saas/sources/merchant/%s", merchantID)
+	result, err := makeReconSaaSAPICall(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	
+	sources, ok := result["sources"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format for merchant sources")
+	}
+	
+	var merchantSources []map[string]interface{}
+	for _, source := range sources {
+		if sourceMap, ok := source.(map[string]interface{}); ok {
+			merchantSources = append(merchantSources, sourceMap)
+		}
+	}
+	
+	return merchantSources, nil
+}
+
+// fetchLookups fetches lookups for a given merchant
+func fetchLookups(ctx context.Context, merchantID string) ([]map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/v1/admin-recon-saas/lookup/merchant/%s", merchantID)
+	result, err := makeReconSaaSAPICall(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	
+	lookups, ok := result["lookups"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format for lookups")
+	}
+	
+	var lookupList []map[string]interface{}
+	for _, lookup := range lookups {
+		if lookupMap, ok := lookup.(map[string]interface{}); ok {
+			lookupList = append(lookupList, lookupMap)
+		}
+	}
+	
+	return lookupList, nil
+}
+
+// fetchMerchantReconProcesses fetches merchant reconciliation processes
+func fetchMerchantReconProcesses(ctx context.Context, merchantID string) ([]map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("/v1/admin-recon-saas/recon_process/merchant/%s", merchantID)
+	result, err := makeReconSaaSAPICall(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	
+	processes, ok := result["processes"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format for recon processes")
+	}
+	
+	var processList []map[string]interface{}
+	for _, process := range processes {
+		if processMap, ok := process.(map[string]interface{}); ok {
+			processList = append(processList, processMap)
+		}
+	}
+	
+	return processList, nil
+}
+
+// getAvailableIDs fetches all available IDs for a merchant
+func getAvailableIDs(ctx context.Context, merchantID string) (map[string]interface{}, error) {
+	merchantSources, err := fetchMerchantSources(ctx, merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch merchant sources: %v", err)
+	}
+	
+	lookups, err := fetchLookups(ctx, merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch lookups: %v", err)
+	}
+	
+	reconProcesses, err := fetchMerchantReconProcesses(ctx, merchantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch recon processes: %v", err)
+	}
+	
+	return map[string]interface{}{
+		"merchant_sources": merchantSources,
+		"lookups":          lookups,
+		"recon_processes":  reconProcesses,
+		"summary": map[string]interface{}{
+			"merchant_id":           merchantID,
+			"merchant_sources_count": len(merchantSources),
+			"lookups_count":         len(lookups),
+			"recon_processes_count": len(reconProcesses),
+		},
+	}, nil
+}
+
 // createMasterSource creates a master source via recon-saas API
 func createMasterSource(ctx context.Context, name, columnsJSON, entityIDColumn, amountColumn string) (string, error) {
 	var columns []string

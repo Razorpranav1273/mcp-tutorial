@@ -892,13 +892,13 @@ func ReconAggregationPrompt() server.ServerPrompt {
 			mcp.ArgumentDescription("Merchant identifier"),
 		),
 		mcp.WithArgument("master_source_id",
-			mcp.ArgumentDescription("Master source ID to update"),
+			mcp.ArgumentDescription("Master source ID to update (leave empty to auto-fetch)"),
 		),
 		mcp.WithArgument("merchant_recon_process_id",
-			mcp.ArgumentDescription("Merchant reconciliation process ID to update"),
+			mcp.ArgumentDescription("Merchant reconciliation process ID to update (leave empty to auto-fetch)"),
 		),
 		mcp.WithArgument("lookup_id",
-			mcp.ArgumentDescription("Lookup ID to update"),
+			mcp.ArgumentDescription("Lookup ID to update (leave empty to auto-fetch)"),
 		),
 	)
 
@@ -1016,10 +1016,16 @@ For your files with %s + %s grouping:
 - grouping_column_2: %s
 - aggregation_column: %s
 - aggregation_function: %s
-- merchant_id: %s
-- master_source_id: %s
-- merchant_recon_process_id: %s
-- lookup_id: %s
+- merchant_id: %s (REQUIRED - used to auto-fetch other IDs)
+
+**Optional Parameters (Auto-fetched if empty):**
+- master_source_id: %s (leave empty to auto-fetch)
+- merchant_recon_process_id: %s (leave empty to auto-fetch)
+- lookup_id: %s (leave empty to auto-fetch)
+
+**Auto-Fetch Feature:**
+- If you leave master_source_id, merchant_recon_process_id, or lookup_id empty, the tool will automatically fetch the first available ID for each from your merchant account
+- This makes the tool much easier to use - you only need to provide the merchant_id!
 
 **Success Criteria:**
 - All three PATCH API calls succeed
