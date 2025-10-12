@@ -1516,7 +1516,16 @@ func updateLookupWithAggregation(ctx context.Context, lookupID string, enableAgg
 	payload := map[string]interface{}{
 		"config": []map[string]interface{}{
 			{
-				"enable_aggregation": enableAggregation,
+				"source":  "record_internal",
+				"columns": []string{"EntityID"},
+				"aggregation": map[string]interface{}{
+					"enabled":    enableAggregation,
+					"conditions": nil,
+				},
+				"advanced_config": map[string]interface{}{
+					"enabled":     enableAggregation,
+					"cols_config": nil,
+				},
 			},
 		},
 	}
@@ -1527,31 +1536,11 @@ func updateLookupWithAggregation(ctx context.Context, lookupID string, enableAgg
 
 // updateMerchantReconProcessWithAggregation updates merchant recon process with aggregation configuration
 func updateMerchantReconProcessWithAggregation(ctx context.Context, merchantReconProcessID, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction string) error {
-	// Update report config to include aggregation mapping
-	reportConfig := []map[string]interface{}{
-		{
-			"id":            "",
-			"type":          "",
-			"report_column": "OriginalVID",
-			"source_column": "Entity identifier",
-		},
-		{
-			"id":            "",
-			"type":          "",
-			"report_column": "LoginName",
-			"source_column": "loginname",
-		},
-		{
-			"id":            "",
-			"type":          "",
-			"report_column": "AggregatedValue",
-			"source_column": aggregationColumn,
-		},
-	}
-
 	payload := map[string]interface{}{
 		"report_config": map[string]interface{}{
-			"column_mappings": reportConfig,
+			"sub_source_report_config": map[string]interface{}{
+				"enabled": true,
+			},
 		},
 		"aggregation_config": map[string]interface{}{
 			"enabled":              true,
