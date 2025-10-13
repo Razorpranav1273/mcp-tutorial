@@ -628,18 +628,29 @@ func makeReconSaaSAPICall(ctx context.Context, method, endpoint string, payload 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", authHeader)
 
+	fmt.Printf("🌐 DEBUG: Making %s request to: %s\n", method, baseURL+endpoint)
+	if payload != nil {
+		payloadBytes, _ := json.Marshal(payload)
+		fmt.Printf("📤 DEBUG: Request payload: %s\n", string(payloadBytes))
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
+		fmt.Printf("❌ DEBUG: HTTP request failed: %v\n", err)
 		return nil, fmt.Errorf("API call failed: %v", err)
 	}
 	defer resp.Body.Close()
 
+	fmt.Printf("📥 DEBUG: Response status: %s\n", resp.Status)
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		fmt.Printf("❌ DEBUG: Failed to read response body: %v\n", err)
 		return nil, fmt.Errorf("failed to read response: %v", err)
 	}
 
+	fmt.Printf("📥 DEBUG: Response body: %s\n", string(responseBody))
 	if resp.StatusCode >= 400 {
+		fmt.Printf("❌ DEBUG: API error %d: %s\n", resp.StatusCode, string(responseBody))
 		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(responseBody))
 	}
 
@@ -1490,25 +1501,58 @@ func performAggregationAnalysis(filePath, fileType, groupingColumn1, groupingCol
 
 // updateMasterSourceWithAggregation updates master source with aggregation configuration
 func updateMasterSourceWithAggregation(ctx context.Context, masterSourceID, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction string) error {
-	// Create aggregation config
-	aggregateConfig := map[string]interface{}{
-		"grouping_columns":     []string{groupingColumn1, groupingColumn2},
-		"aggregation_column":   aggregationColumn,
-		"aggregation_function": aggregationFunction,
-		"enabled":              true,
-	}
-
+	// Send the complete config structure to match the API response format
 	payload := map[string]interface{}{
 		"config": map[string]interface{}{
-			"sub_source_config": map[string]interface{}{
-				"aggregate_config":           aggregateConfig,
-				"enable_sub_source_creation": true,
+			"skip_top_rows":    0,
+			"ingest_to_db":     true,
+			"allow_upload":     false,
+			"unique_keys":      []string{"EntityID"},
+			"is_internal":      false,
+			"split_file_basis": "",
+			"row_hash_value_based_split_config": map[string]interface{}{
+				"header_hash_to_master_source_map": nil,
+				"column_joiner":                    "",
 			},
+			"sub_source_config": map[string]interface{}{
+				"aggregate_config": []map[string]interface{}{
+					{
+						"column":        aggregationColumn,
+						"value":         aggregationFunction,
+						"operation":     "group_by",
+						"operation_val": "1",
+					},
+				},
+				"grouping_columns":           []string{groupingColumn1, groupingColumn2},
+				"sub_master_source_id":       "",
+				"enable_sub_source_creation": true,
+				"amount_key":                 aggregationColumn,
+			},
+			"extract_distinct_config":  nil,
+			"report_enrichment":        true,
+			"skip_bottom_rows":         0,
+			"skip_row_func":            "",
+			"is_header_missing":        false,
+			"add_file_details_source":  false,
+			"get_file_cycle_from_name": false,
+			"add_file_cycle":           false,
+			"file_delimiter":           "",
+			"get_file_date_from_name": map[string]interface{}{
+				"regex_pattern": "",
+				"date_format":   "",
+			},
+			"add_file_date": false,
 		},
 	}
 
-	_, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/sources/update/%s", masterSourceID), payload)
-	return err
+	fmt.Printf("🔧 DEBUG: Updating Master Source %s with payload: %+v\n", masterSourceID, payload)
+	response, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/sources/update/%s", masterSourceID), payload)
+	if err != nil {
+		fmt.Printf("❌ DEBUG: Master Source update failed: %v\n", err)
+		return err
+	}
+	fmt.Printf("✅ DEBUG: Master Source update response: %+v\n", response)
+	return nil
 }
 
 // updateLookupWithAggregation updates lookup with aggregation enablement
@@ -1517,7 +1561,7 @@ func updateLookupWithAggregation(ctx context.Context, lookupID string, enableAgg
 		"config": []map[string]interface{}{
 			{
 				"source":  "record_internal",
-				"columns": []string{"EntityID"},
+				"Columns": []string{"EntityID"}, // Fixed: Use "Columns" with capital C
 				"aggregation": map[string]interface{}{
 					"enabled":    enableAggregation,
 					"conditions": nil,
@@ -1530,17 +1574,43 @@ func updateLookupWithAggregation(ctx context.Context, lookupID string, enableAgg
 		},
 	}
 
-	_, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/lookup/%s", lookupID), payload)
-	return err
+	fmt.Printf("🔧 DEBUG: Updating Lookup %s with payload: %+v\n", lookupID, payload)
+	response, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/lookup/%s", lookupID), payload)
+	if err != nil {
+		fmt.Printf("❌ DEBUG: Lookup update failed: %v\n", err)
+		return err
+	}
+	fmt.Printf("✅ DEBUG: Lookup update response: %+v\n", response)
+	return nil
 }
 
 // updateMerchantReconProcessWithAggregation updates merchant recon process with aggregation configuration
 func updateMerchantReconProcessWithAggregation(ctx context.Context, merchantReconProcessID, groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction string) error {
 	payload := map[string]interface{}{
 		"report_config": map[string]interface{}{
+			"source_report_config": nil,
+			"frontend_cols":        nil,
+			"reporting_sources":    nil,
+			"report_enrichment":    nil,
 			"sub_source_report_config": map[string]interface{}{
-				"enabled": true,
+				"enabled":              true,
+				"source_report_config": nil,
+				"recon_status_key":     "",
+				"frontend_cols":        nil,
 			},
+			"report_upload": map[string]interface{}{
+				"enabled":        false,
+				"s3_bucket":      "",
+				"s3_path":        "",
+				"s3_file_prefix": "",
+			},
+			"skip_status":                  false,
+			"skip_rows":                    false,
+			"skip_rows_recon_state_ids":    nil,
+			"report_format":                nil,
+			"report_channel":               nil,
+			"custom_reports":               nil,
+			"advanced_reporting_config_id": "",
 		},
 		"aggregation_config": map[string]interface{}{
 			"enabled":              true,
@@ -1550,8 +1620,14 @@ func updateMerchantReconProcessWithAggregation(ctx context.Context, merchantReco
 		},
 	}
 
-	_, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/recon_process/merchant/%s", merchantReconProcessID), payload)
-	return err
+	fmt.Printf("🔧 DEBUG: Updating Merchant Recon Process %s with payload: %+v\n", merchantReconProcessID, payload)
+	response, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/recon_process/merchant/%s", merchantReconProcessID), payload)
+	if err != nil {
+		fmt.Printf("❌ DEBUG: Merchant Recon Process update failed: %v\n", err)
+		return err
+	}
+	fmt.Printf("✅ DEBUG: Merchant Recon Process update response: %+v\n", response)
+	return nil
 }
 
 // runReconciliation runs reconciliation process to test aggregation
