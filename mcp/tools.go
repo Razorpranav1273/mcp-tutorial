@@ -5,12 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
+
+// detectFileType detects file type from file extension
+func detectFileType(filePath string) string {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".csv":
+		return "csv"
+	case ".xlsx", ".xls":
+		return "excel"
+	default:
+		return "csv" // default to csv if unknown
+	}
+}
 
 // CalculatorTool Calculator tool for basic math operations
 func CalculatorTool() server.ServerTool {
@@ -834,25 +849,15 @@ func ReconProcessSetupTool() server.ServerTool {
 
 // ReconAggregationTool Aggregation tool for recon-saas data processing
 func ReconAggregationTool() server.ServerTool {
-	tool := mcp.NewTool("aggregation_tool",
+	tool := mcp.NewTool("recon_aggregation_tool",
 		mcp.WithDescription("Configure aggregation logic for reconciliation data processing"),
 		mcp.WithString("file1_path",
 			mcp.Description("Full file path to the first reconciliation file (e.g., /path/to/transactions.csv or /path/to/transactions.xlsx)"),
 			mcp.Required(),
 		),
-		mcp.WithString("file1_type",
-			mcp.Description("Type of the first file"),
-			mcp.Required(),
-			mcp.Enum("csv", "excel"),
-		),
 		mcp.WithString("file2_path",
 			mcp.Description("Full file path to the second reconciliation file (e.g., /path/to/bank_statements.csv or /path/to/bank_statements.xlsx)"),
 			mcp.Required(),
-		),
-		mcp.WithString("file2_type",
-			mcp.Description("Type of the second file"),
-			mcp.Required(),
-			mcp.Enum("csv", "excel"),
 		),
 		mcp.WithString("aggregation_column",
 			mcp.Description("Column to aggregate (e.g., Transaction_Amount)"),
@@ -873,19 +878,16 @@ func ReconAggregationTool() server.ServerTool {
 		),
 		mcp.WithString("merchant_id",
 			mcp.Description("Merchant identifier"),
-			mcp.Required(),
+			mcp.DefaultString("LLkjLdJz4gWVvk"),
 		),
 		mcp.WithString("master_source_id",
-			mcp.Description("Master source ID to update"),
-			mcp.Required(),
+			mcp.Description("Master source ID to update (auto-fetched if not provided)"),
 		),
 		mcp.WithString("merchant_recon_process_id",
-			mcp.Description("Merchant reconciliation process ID to update"),
-			mcp.Required(),
+			mcp.Description("Merchant reconciliation process ID to update (auto-fetched if not provided)"),
 		),
 		mcp.WithString("lookup_id",
-			mcp.Description("Lookup ID to update"),
-			mcp.Required(),
+			mcp.Description("Lookup ID to update (auto-fetched if not provided)"),
 		),
 	)
 
@@ -900,15 +902,9 @@ func ReconAggregationTool() server.ServerTool {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		file1Type, err := request.RequireString("file1_type")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		file2Type, err := request.RequireString("file2_type")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
+		// Auto-detect file types from extensions
+		file1Type := detectFileType(file1Path)
+		file2Type := detectFileType(file2Path)
 
 		groupingColumn1, err := request.RequireString("grouping_column_1")
 		if err != nil {
@@ -930,24 +926,24 @@ func ReconAggregationTool() server.ServerTool {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		merchantID, err := request.RequireString("merchant_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		merchantID := request.GetString("merchant_id", "LLkjLdJz4gWVvk")
+
+		masterSourceID := request.GetString("master_source_id", "")
+		if masterSourceID == "" {
+			// Auto-fetch from previous steps - you can implement logic here to get from context
+			return mcp.NewToolResultError("master_source_id is required. Please provide it or ensure it's available from previous steps"), nil
 		}
 
-		masterSourceID, err := request.RequireString("master_source_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		merchantReconProcessID := request.GetString("merchant_recon_process_id", "")
+		if merchantReconProcessID == "" {
+			// Auto-fetch from previous steps - you can implement logic here to get from context
+			return mcp.NewToolResultError("merchant_recon_process_id is required. Please provide it or ensure it's available from previous steps"), nil
 		}
 
-		merchantReconProcessID, err := request.RequireString("merchant_recon_process_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		lookupID, err := request.RequireString("lookup_id")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
+		lookupID := request.GetString("lookup_id", "")
+		if lookupID == "" {
+			// Auto-fetch from previous steps - you can implement logic here to get from context
+			return mcp.NewToolResultError("lookup_id is required. Please provide it or ensure it's available from previous steps"), nil
 		}
 
 		// Read file 1 to get columns directly

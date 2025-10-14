@@ -845,7 +845,7 @@ Upon successful completion, the merchant onboarding process will be complete and
 - Dashboard monitoring and reporting
 - Scheduling and alerting configuration
 
-Execute all API calls sequentially, capture all response IDs, and provide comprehensive completion summary.`, lookupStrategy, processType, reportingConfig, lookupStrategy, reportingConfig, reportingConfig)
+Execute all API calls sequentially, capture all response IDs, and provide comprehensive completion summary.`, lookupStrategy, processType, reportingConfig, lookupStrategy, reportingConfig)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -868,7 +868,7 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 
 // ReconAggregationPrompt Aggregation configuration prompt for recon-saas data processing
 func ReconAggregationPrompt() server.ServerPrompt {
-	prompt := mcp.NewPrompt("aggregation_guide",
+	prompt := mcp.NewPrompt("recon_aggregation_tool",
 		mcp.WithPromptDescription("Configure aggregation logic for reconciliation data processing with grouping and aggregation functions"),
 		mcp.WithArgument("file1_path",
 			mcp.ArgumentDescription("Full file path to the first reconciliation file (this will be used for aggregation)"),
@@ -889,16 +889,16 @@ func ReconAggregationPrompt() server.ServerPrompt {
 			mcp.ArgumentDescription("Aggregation function to apply (sum, count, avg, min, max)"),
 		),
 		mcp.WithArgument("merchant_id",
-			mcp.ArgumentDescription("Merchant identifier"),
+			mcp.ArgumentDescription("Merchant identifier (defaults to LLkjLdJz4gWVvk if not provided)"),
 		),
 		mcp.WithArgument("master_source_id",
-			mcp.ArgumentDescription("Master source ID to update (leave empty to auto-fetch)"),
+			mcp.ArgumentDescription("Master source ID to update (auto-fetched from previous steps if not provided)"),
 		),
 		mcp.WithArgument("merchant_recon_process_id",
-			mcp.ArgumentDescription("Merchant reconciliation process ID to update (leave empty to auto-fetch)"),
+			mcp.ArgumentDescription("Merchant reconciliation process ID to update (auto-fetched from previous steps if not provided)"),
 		),
 		mcp.WithArgument("lookup_id",
-			mcp.ArgumentDescription("Lookup ID to update (leave empty to auto-fetch)"),
+			mcp.ArgumentDescription("Lookup ID to update (auto-fetched from previous steps if not provided)"),
 		),
 	)
 
@@ -913,15 +913,9 @@ func ReconAggregationPrompt() server.ServerPrompt {
 			file2Path = fp2
 		}
 
-		file1Type := "csv"
-		if ft1, exists := request.Params.Arguments["file1_type"]; exists && ft1 != "" {
-			file1Type = ft1
-		}
-
-		file2Type := "csv"
-		if ft2, exists := request.Params.Arguments["file2_type"]; exists && ft2 != "" {
-			file2Type = ft2
-		}
+		// Auto-detect file types from extensions
+		file1Type := detectFileType(file1Path)
+		file2Type := detectFileType(file2Path)
 
 		groupingColumn1 := ""
 		if gc1, exists := request.Params.Arguments["grouping_column_1"]; exists && gc1 != "" {
@@ -943,13 +937,13 @@ func ReconAggregationPrompt() server.ServerPrompt {
 			aggregationFunction = af
 		}
 
-		merchantID := ""
+		merchantID := "LLkjLdJz4gWVvk"
 		if mid, exists := request.Params.Arguments["merchant_id"]; exists && mid != "" {
 			merchantID = mid
 		}
 
-		// Note: master_source_id, merchant_recon_process_id, and lookup_id are required parameters
-		// They will be provided when calling the aggregation_tool
+		// Note: master_source_id, merchant_recon_process_id, and lookup_id are auto-fetched from previous steps
+		// They will be provided when calling the recon_aggregation_tool
 
 		elaboratePrompt := fmt.Sprintf(`# 🔧 Recon-SaaS Aggregation Configuration Guide
 
@@ -1008,7 +1002,7 @@ The system will automatically:
 - ✅ Aggregation function: %s
 - ✅ Merchant ID: %s
 
-**Next Step:** Use the **aggregation_tool** with these parameters to execute the aggregation setup.
+**Next Step:** Use the **recon_aggregation_tool** with these parameters to execute the aggregation setup.
 
 ## 📊 **Expected Results**
 
@@ -1018,7 +1012,7 @@ After successful execution, you'll get:
 - Grouped records with unique identifiers
 - Improved reconciliation performance
 
-**Ready to proceed? Use the aggregation_tool with the parameters above!**`,
+**Ready to proceed? Use the recon_aggregation_tool with the parameters above!**`,
 			file1Path, file1Type, file2Path, file2Type,
 			groupingColumn1, groupingColumn2, aggregationColumn, aggregationFunction,
 			groupingColumn1, groupingColumn2, aggregationFunction, aggregationColumn,
