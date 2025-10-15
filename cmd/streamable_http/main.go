@@ -53,6 +53,7 @@ func main() {
 		mcp.ReconMerchantSourceTool(),
 		mcp.ReconStateRuleTool(),
 		mcp.ReconProcessSetupTool(),
+		mcp.ReconAggregationTool(),
 	)
 
 	mcpServer.AddPrompts(
@@ -64,6 +65,7 @@ func main() {
 		mcp.ReconMerchantSourcePrompt(),
 		mcp.ReconStateRulePrompt(),
 		mcp.ReconProcessSetupPrompt(),
+		mcp.ReconAggregationPrompt(),
 	)
 
 	mcpServer.AddResources(
