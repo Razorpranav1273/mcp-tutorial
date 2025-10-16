@@ -946,7 +946,7 @@ func ReconAggregationTool() server.ServerTool {
 			"config": []map[string]interface{}{
 				{
 					"source":  "record_internal",
-					"Columns": []string{entityIdentifier},
+					"Columns": []string{"EntityID"},
 					"aggregation": map[string]interface{}{
 						"enabled":    true,
 						"conditions": []interface{}{},
@@ -972,8 +972,8 @@ func ReconAggregationTool() server.ServerTool {
 						{
 							"id":            "",
 							"type":          "",
-							"report_column": entityIdentifier,
-							"source_column": entityIdentifier,
+							"report_column": "EntityIdentifier",
+							"source_column": "EntityID",
 						},
 					},
 				},
