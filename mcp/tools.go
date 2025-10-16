@@ -972,6 +972,12 @@ func ReconAggregationTool() server.ServerTool {
 						{
 							"id":            "",
 							"type":          "",
+							"report_column": "UTR",
+							"source_column": "UTR",
+						},
+						{
+							"id":            "",
+							"type":          "",
 							"report_column": "EntityIdentifier",
 							"source_column": "EntityID",
 						},
