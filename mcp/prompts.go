@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -871,9 +870,6 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 func ReconAggregationPrompt() server.ServerPrompt {
 	prompt := mcp.NewPrompt("recon_aggregation",
 		mcp.WithPromptDescription("Configure Entity Identifier across recon-saas systems for aggregation logic"),
-		mcp.WithArgument("file_type",
-			mcp.ArgumentDescription("Type of files being processed (csv, excel)"),
-		),
 		mcp.WithArgument("entity_type",
 			mcp.ArgumentDescription("Type of entity identifier (UTR, VID, Cheque No, Transaction ID, etc.)"),
 		),
@@ -883,10 +879,7 @@ func ReconAggregationPrompt() server.ServerPrompt {
 	)
 
 	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		fileType := "CSV"
-		if ft, exists := request.Params.Arguments["file_type"]; exists && ft != "" {
-			fileType = strings.ToUpper(ft)
-		}
+		fileType := "CSV" // Hardcoded to CSV as per user request
 
 		entityType := "UTR"
 		if et, exists := request.Params.Arguments["entity_type"]; exists && et != "" {
