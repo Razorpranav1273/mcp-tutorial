@@ -984,7 +984,7 @@ func ReconAggregationTool() server.ServerTool {
 		// 3️⃣ Update master_recon_process
 		masterReconProcessPayload := map[string]interface{}{
 			"report_config": map[string]interface{}{
-				"frontend_cols": []string{"UTR", "Amount", "Type", "Status"},
+				"frontend_cols": []string{"UTR", "EntityID", "Amount", "Type", "Status"},
 				"source_report_config": []map[string]interface{}{
 					{
 						"column_map": []map[string]interface{}{
@@ -993,6 +993,12 @@ func ReconAggregationTool() server.ServerTool {
 								"type":          "",
 								"report_column": "UTR",
 								"source_column": "EntityIdentifier",
+							},
+							{
+								"id":            "",
+								"type":          "",
+								"report_column": "EntityID",
+								"source_column": "EntityID",
 							},
 							{
 								"id":            "",
@@ -1014,13 +1020,13 @@ func ReconAggregationTool() server.ServerTool {
 							},
 						},
 						"master_source_id": masterSourceID,
-						"report_name": "",
+						"report_name":      "",
 						"report_name_config": map[string]interface{}{
-							"format": "",
+							"format":         "",
 							"parameters_map": nil,
 						},
 						"email_subject_config": map[string]interface{}{
-							"format": "",
+							"format":         "",
 							"parameters_map": nil,
 						},
 					},
