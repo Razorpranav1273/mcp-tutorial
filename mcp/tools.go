@@ -199,22 +199,12 @@ func ReconFileAnalysisTool() server.ServerTool {
 	tool := mcp.NewTool("recon_file_analysis",
 		mcp.WithDescription("Analyze uploaded reconciliation files to identify EntityID and Amount columns for master source creation"),
 		mcp.WithString("file1_path",
-			mcp.Description("Full file path to the first reconciliation file (e.g., /path/to/transactions.csv or /path/to/transactions.xlsx)"),
+			mcp.Description("Full file path to the first reconciliation file (CSV format)"),
 			mcp.Required(),
 		),
 		mcp.WithString("file2_path",
-			mcp.Description("Full file path to the second reconciliation file (e.g., /path/to/bank_statements.csv or /path/to/bank_statements.xlsx)"),
+			mcp.Description("Full file path to the second reconciliation file (CSV format)"),
 			mcp.Required(),
-		),
-		mcp.WithString("file1_type",
-			mcp.Description("Type of the first file"),
-			mcp.Required(),
-			mcp.Enum("csv", "excel"),
-		),
-		mcp.WithString("file2_type",
-			mcp.Description("Type of the second file"),
-			mcp.Required(),
-			mcp.Enum("csv", "excel"),
 		),
 	)
 
@@ -229,15 +219,9 @@ func ReconFileAnalysisTool() server.ServerTool {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		file1Type, err := request.RequireString("file1_type")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-
-		file2Type, err := request.RequireString("file2_type")
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
+		// Hardcode file types to CSV as per user request
+		file1Type := "csv"
+		file2Type := "csv"
 
 		// Analyze both files based on their type
 		analysis1, err := analyzeFile(file1Path, "file_1", file1Type)
