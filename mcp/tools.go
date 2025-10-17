@@ -838,18 +838,23 @@ func ReconProcessSetupTool() server.ServerTool {
 // ReconAggregationTool Aggregation tool for recon-saas to define and update Entity Identifier across systems
 func ReconAggregationTool() server.ServerTool {
 	tool := mcp.NewTool("recon_aggregation_tool",
-		mcp.WithDescription("Define and update Entity Identifier (like UTR, VID, Cheque No) across master_source, lookup, and master_recon_process systems for aggregation logic on CSV files"),
+		mcp.WithDescription("Configure aggregation logic for reconciliation. Please provide the following 4 inputs: 1) File 1 path, 2) File 2 path, 3) Entity Identifier column, 4) Aggregation strategy"),
 		mcp.WithString("file1_path",
-			mcp.Description("Full file path to the aggregation file (File 1) - the file that aggregation logic applies to"),
+			mcp.Description("📁 File 1 Path: Upload path to your first reconciliation file (CSV format)"),
 			mcp.Required(),
 		),
 		mcp.WithString("file2_path",
-			mcp.Description("Full file path to the second file (File 2) - used for comparison or reconciliation"),
+			mcp.Description("📁 File 2 Path: Upload path to your second reconciliation file (CSV format)"),
 			mcp.Required(),
 		),
 		mcp.WithString("entity_identifier",
-			mcp.Description("Column name to make the Entity Identifier (e.g., UTR, VID, Cheque No)"),
+			mcp.Description("🔑 Entity Identifier: Column name to use as unique identifier (e.g., UTR, VID, Cheque No)"),
 			mcp.Required(),
+		),
+		mcp.WithString("aggregation_strategy",
+			mcp.Description("📊 Aggregation Strategy: How to aggregate data (e.g., sum, count, average)"),
+			mcp.Required(),
+			mcp.Enum("sum", "count", "average", "max", "min"),
 		),
 	)
 
@@ -865,6 +870,11 @@ func ReconAggregationTool() server.ServerTool {
 		}
 
 		entityIdentifier, err := request.RequireString("entity_identifier")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		aggregationStrategy, err := request.RequireString("aggregation_strategy")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -995,7 +1005,7 @@ func ReconAggregationTool() server.ServerTool {
 		}
 
 		// Generate aggregation preview
-		aggregationPreview := generateAggregationPreview(file1Path, entityIdentifier)
+		aggregationPreview := generateAggregationPreview(file1Path, entityIdentifier, aggregationStrategy)
 
 		// Generate reconciliation comparison table with API IDs
 		reconciliationTable := generateReconciliationTable(file1Path, entityIdentifier, masterSourceID, lookupID, masterReconProcessID)
@@ -1060,7 +1070,7 @@ func ReconAggregationTool() server.ServerTool {
 }
 
 // generateAggregationPreview creates a preview of how the data will look after aggregation
-func generateAggregationPreview(filePath, entityIdentifier string) map[string]interface{} {
+func generateAggregationPreview(filePath, entityIdentifier, aggregationStrategy string) map[string]interface{} {
 	// Read the CSV file to generate preview
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -1184,6 +1194,7 @@ func generateAggregationPreview(filePath, entityIdentifier string) map[string]in
 		},
 		"aggregation_rules": map[string]interface{}{
 			"group_by":        entityIdentifier,
+			"strategy":        aggregationStrategy,
 			"sum_fields":      []string{"Amount", "amount"},
 			"preserve_fields": []string{"Type", "Status", "type", "status"},
 		},
