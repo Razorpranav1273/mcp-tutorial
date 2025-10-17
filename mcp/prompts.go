@@ -865,3 +865,135 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 		Handler: handler,
 	}
 }
+
+// ReconAggregationPrompt Aggregation prompt for recon-saas entity identifier configuration
+func ReconAggregationPrompt() server.ServerPrompt {
+	prompt := mcp.NewPrompt("recon_aggregation",
+		mcp.WithPromptDescription("Configure Entity Identifier across recon-saas systems for aggregation logic"),
+		mcp.WithArgument("entity_type",
+			mcp.ArgumentDescription("Type of entity identifier (UTR, VID, Cheque No, Transaction ID, etc.)"),
+		),
+		mcp.WithArgument("aggregation_strategy",
+			mcp.ArgumentDescription("Aggregation strategy (sum, count, max, min, average)"),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		fileType := "CSV" // Hardcoded to CSV as per user request
+
+		entityType := "UTR"
+		if et, exists := request.Params.Arguments["entity_type"]; exists && et != "" {
+			entityType = et
+		}
+
+		aggregationStrategy := "sum"
+		if as, exists := request.Params.Arguments["aggregation_strategy"]; exists && as != "" {
+			aggregationStrategy = as
+		}
+
+		elaboratePrompt := fmt.Sprintf(`You are a recon-saas aggregation specialist configuring Entity Identifier (%s) across multiple systems. Your task is to automate the setup of aggregation logic for %s files.
+
+**CORE RESPONSIBILITIES:**
+
+**Entity Identifier Configuration:**
+- Define and update Entity Identifier (%s) across three systems:
+  - master_source: Mark selected column as entity identifier
+  - lookup: Enable aggregation logic (aggregation_logic: true)
+  - master_recon_process: Update report configuration mapping
+
+**Aggregation Logic Setup:**
+- Apply aggregation strategy (%s) to File 1 (aggregation file)
+- Group records by Entity Identifier (%s)
+- Aggregate numeric fields (amounts, counts, etc.)
+- Preserve non-aggregatable fields (status, type, etc.)
+
+**API Integration Workflow:**
+
+**Step 1: File Analysis**
+- Analyze both files to extract column information
+- Validate Entity Identifier exists in File 1
+- Identify aggregatable numeric columns
+- Confirm file compatibility for reconciliation
+
+**Step 2: Sequential API Updates**
+1. **master_source PATCH**: Update entity_identifier and mapping_config
+2. **lookup PATCH**: Enable aggregation_logic: true
+3. **master_recon_process PATCH**: Update source_report_config mapping
+
+**Step 3: Aggregation Processing**
+- Group File 1 records by %s
+- Apply %s aggregation to numeric fields
+- Create aggregated dataset for reconciliation
+- Maintain data integrity and validation
+
+**CONFIGURATION REQUIREMENTS:**
+
+**Master Source Updates:**
+- Set entity_identifier to selected column name
+- Update mapping_config with EntityID destination
+- Preserve existing column mappings
+
+**Lookup Configuration:**
+- Enable aggregation_logic: true
+- Maintain existing lookup configurations
+- Support non-streaming source aggregation
+
+**Master Recon Process Updates:**
+- Update source_report_config with reverse mapping
+- Map report_column to source_column "Entity Identifier"
+- Ensure proper column mapping for reports
+
+**AGGREGATION EXAMPLES:**
+
+**Before Aggregation (File 1):**
+%s	Amount	Type	Status
+UTR001	500	CARD	SUCCESS
+UTR001	300	CARD	SUCCESS
+UTR002	700	CARD	FAILED
+
+**After Aggregation (File 1):**
+%s	Total_Amount	Type	Status
+UTR001	800	CARD	SUCCESS
+UTR002	700	CARD	FAILED
+
+**RECONCILIATION BENEFITS:**
+- Eliminates duplicate Entity Identifiers
+- Enables clean 1:1 matching between files
+- Improves reconciliation accuracy
+- Reduces false mismatches
+- Supports complex transaction scenarios
+
+**ERROR HANDLING:**
+- Validate Entity Identifier exists in aggregation file
+- Check file format compatibility
+- Handle API failures gracefully
+- Provide detailed error messages
+- Maintain data consistency
+
+**VALIDATION CHECKLIST:**
+- Entity Identifier column exists in File 1
+- Both files have compatible structure
+- Aggregation logic properly configured
+- Report mapping correctly updated
+- All API calls successful
+
+Focus on seamless integration and data integrity throughout the aggregation process.`, entityType, fileType, entityType, aggregationStrategy, entityType, entityType, aggregationStrategy, entityType, entityType)
+
+		messages := []mcp.PromptMessage{
+			mcp.NewPromptMessage(
+				mcp.RoleUser,
+				mcp.NewTextContent(elaboratePrompt),
+			),
+		}
+
+		return mcp.NewGetPromptResult(
+			fmt.Sprintf("Recon-SaaS Aggregation: %s Entity Identifier (%s strategy)", entityType, aggregationStrategy),
+			messages,
+		), nil
+	}
+
+	return server.ServerPrompt{
+		Prompt:  prompt,
+		Handler: handler,
+	}
+}

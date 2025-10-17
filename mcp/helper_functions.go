@@ -744,7 +744,7 @@ func createMasterSource(ctx context.Context, name, columnsJSON, entityIDColumn, 
 		"name": name,
 		"config": map[string]interface{}{
 			"is_internal":       false,
-			"unique_keys":       []string{entityIDColumn},
+			"unique_keys":       []string{"EntityID"},
 			"allow_upload":      false,
 			"ingest_to_db":      true,
 			"skip_top_rows":     0,
@@ -1251,4 +1251,54 @@ func extractRuleIDs(rules map[string]interface{}) map[string]string {
 	}
 
 	return ruleIDs
+}
+
+// detectFileType detects file type from file extension
+func detectFileType(filePath string) string {
+	lowerPath := strings.ToLower(filePath)
+	if strings.HasSuffix(lowerPath, ".xlsx") || strings.HasSuffix(lowerPath, ".xls") {
+		return "excel"
+	}
+	// Default to CSV for .csv files or any other extension
+	return "csv"
+}
+
+// checkNonStreamingSource checks if a source is non-streaming by examining master_recon_process lookup config
+func checkNonStreamingSource(ctx context.Context, masterReconProcessID, masterSourceID string) (bool, error) {
+	// Get master recon process details to check lookup config
+	result, err := makeReconSaaSAPICall(ctx, "GET", fmt.Sprintf("/v1/admin-recon-saas/recon_process/master/%s", masterReconProcessID), nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to get master recon process: %v", err)
+	}
+
+	// Extract lookup config from the response
+	lookupConfig, exists := result["lookup_config"]
+	if !exists {
+		// If no lookup config, assume non-streaming
+		return true, nil
+	}
+
+	// Check if the source is in streaming_source_id
+	lookupConfigArray, ok := lookupConfig.([]interface{})
+	if !ok {
+		return true, nil // Default to non-streaming if can't parse
+	}
+
+	for _, config := range lookupConfigArray {
+		configMap, ok := config.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Check if this config has streaming_source_id
+		if streamingSourceID, exists := configMap["streaming_source_id"]; exists {
+			// If streaming_source_id matches our master_source_id, it's streaming
+			if streamingSourceID == masterSourceID {
+				return false, nil
+			}
+		}
+	}
+
+	// If not found in streaming sources, it's non-streaming
+	return true, nil
 }
