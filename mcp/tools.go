@@ -926,17 +926,17 @@ func ReconAggregationTool() server.ServerTool {
 		// 1️⃣ Update master_source
 		masterSourcePayload := map[string]interface{}{
 			"config": map[string]interface{}{
-				"cc_emails": nil,
-				"bcc_emails": nil,
+				"cc_emails":    nil,
+				"bcc_emails":   nil,
 				"allow_upload": true,
 				"reporting_emails": []string{
 					"bhavesh.randhir@razorpay.com",
 					"sachin.tiwari@razorpay.com",
 				},
-				"split_file_basis": "",
+				"split_file_basis":   "",
 				"beam_sftp_push_job": "rdpr_sftp_push",
 				"row_hash_value_based_split_config": map[string]interface{}{
-					"column_joiner": "",
+					"column_joiner":                    "",
 					"header_hash_to_master_source_map": nil,
 				},
 			},
@@ -980,13 +980,7 @@ func ReconAggregationTool() server.ServerTool {
 							"id":            "",
 							"type":          "",
 							"report_column": "UTR",
-							"source_column": "UTR",
-						},
-						{
-							"id":            "",
-							"type":          "",
-							"report_column": "EntityIdentifier",
-							"source_column": "EntityID",
+							"source_column": "EntityIdentifier",
 						},
 					},
 				},
