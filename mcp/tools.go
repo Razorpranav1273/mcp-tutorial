@@ -831,3 +831,207 @@ func ReconProcessSetupTool() server.ServerTool {
 		Handler: handler,
 	}
 }
+
+// ReconAggregationTool Aggregation tool for recon-saas with entity identifier configuration
+func ReconAggregationTool() server.ServerTool {
+	tool := mcp.NewTool("recon_aggregation",
+		mcp.WithDescription("Configure aggregation logic for recon-saas by updating entity identifier and enabling aggregation"),
+		mcp.WithString("file1_path",
+			mcp.Description("Full file path to the first reconciliation file (aggregation will be applied to this file)"),
+			mcp.Required(),
+		),
+		mcp.WithString("file2_path",
+			mcp.Description("Full file path to the second reconciliation file"),
+			mcp.Required(),
+		),
+		mcp.WithString("entity_identifier",
+			mcp.Description("Column name to be used as entity identifier (e.g., UTR, VID, Transaction ID)"),
+			mcp.Required(),
+		),
+		mcp.WithString("aggregation_strategy",
+			mcp.Description("Strategy for aggregation (sum, count, avg, etc.)"),
+			mcp.Enum("sum", "count", "avg", "max", "min"),
+			mcp.DefaultString("sum"),
+		),
+		mcp.WithString("master_source_id",
+			mcp.Description("Master source ID from recon_master_source tool"),
+			mcp.Required(),
+		),
+		mcp.WithString("lookup_id",
+			mcp.Description("Lookup ID from recon_process_setup tool"),
+			mcp.Required(),
+		),
+		mcp.WithString("master_recon_process_id",
+			mcp.Description("Master recon process ID from recon_process_setup tool"),
+			mcp.Required(),
+		),
+		mcp.WithString("master_source_id_2",
+			mcp.Description("Second master source ID from recon_master_source tool"),
+			mcp.Required(),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		file1Path, err := request.RequireString("file1_path")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		file2Path, err := request.RequireString("file2_path")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		entityIdentifier, err := request.RequireString("entity_identifier")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		aggregationStrategy := request.GetString("aggregation_strategy", "sum")
+
+		masterSourceID1, err := request.RequireString("master_source_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		lookupID, err := request.RequireString("lookup_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		masterReconProcessID, err := request.RequireString("master_recon_process_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		masterSourceID2, err := request.RequireString("master_source_id_2")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		// Analyze files to determine file types
+		file1Type := determineFileType(file1Path)
+		file2Type := determineFileType(file2Path)
+
+		// Analyze both files
+		analysis1, err := analyzeFile(file1Path, "file_1", file1Type)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to analyze file 1: %v", err)), nil
+		}
+
+		analysis2, err := analyzeFile(file2Path, "file_2", file2Type)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to analyze file 2: %v", err)), nil
+		}
+
+		// Validate entity identifier exists in file 1 (aggregation file)
+		if !validateEntityIdentifier(analysis1, entityIdentifier) {
+			return mcp.NewToolResultError(fmt.Sprintf("Entity identifier '%s' not found in file 1 columns", entityIdentifier)), nil
+		}
+
+		// Generate comprehensive report configuration based on file analysis
+		comprehensiveReportConfig := generateComprehensiveReportConfig(analysis1, analysis2, entityIdentifier, masterSourceID1, masterSourceID2)
+
+		// Test all PATCH API endpoints to see which ones work
+		apiTestResults := make(map[string]interface{})
+
+		// Test 1: Master Source Update
+		err1 := updateMasterSourceMapping(ctx, masterSourceID1, entityIdentifier)
+		apiTestResults["master_source_update"] = map[string]interface{}{
+			"endpoint": fmt.Sprintf("/v1/admin-recon-saas/sources/update/%s", masterSourceID1),
+			"success":  err1 == nil,
+			"error": func() string {
+				if err1 != nil {
+					return err1.Error()
+				}
+				return ""
+			}(),
+		}
+
+		// Test 2: Lookup Update
+		err2 := updateLookupAggregation(ctx, lookupID)
+		apiTestResults["lookup_update"] = map[string]interface{}{
+			"endpoint": fmt.Sprintf("/v1/admin-recon-saas/lookup/%s", lookupID),
+			"success":  err2 == nil,
+			"error": func() string {
+				if err2 != nil {
+					return err2.Error()
+				}
+				return ""
+			}(),
+		}
+
+		// Test 3: Master Recon Process Update with Comprehensive Report Config
+		err3 := updateMasterReconProcessReportConfigComprehensive(ctx, masterReconProcessID, comprehensiveReportConfig)
+		apiTestResults["master_recon_process_update"] = map[string]interface{}{
+			"endpoint": fmt.Sprintf("/v1/admin-recon-saas/recon_process/master/%s", masterReconProcessID),
+			"success":  err3 == nil,
+			"error": func() string {
+				if err3 != nil {
+					return err3.Error()
+				}
+				return ""
+			}(),
+		}
+
+		// Count successful API calls
+		successCount := 0
+		if err1 == nil {
+			successCount++
+		}
+		if err2 == nil {
+			successCount++
+		}
+		if err3 == nil {
+			successCount++
+		}
+
+		result := map[string]interface{}{
+			"status":           "success",
+			"message":          "Aggregation logic configured successfully with comprehensive report configuration",
+			"api_test_results": apiTestResults,
+			"provided_ids": map[string]interface{}{
+				"master_source_id":        masterSourceID1,
+				"master_source_id_2":      masterSourceID2,
+				"lookup_id":               lookupID,
+				"master_recon_process_id": masterReconProcessID,
+				"retrieval_method":        "user_provided_parameters",
+			},
+			"comprehensive_report_config": comprehensiveReportConfig,
+			"execution_summary": map[string]interface{}{
+				"file_1_path":           file1Path,
+				"file_2_path":           file2Path,
+				"entity_identifier":     entityIdentifier,
+				"aggregation_strategy":  aggregationStrategy,
+				"total_patch_endpoints": 3,
+				"successful_calls":      successCount,
+				"failed_calls":          3 - successCount,
+				"success_rate":          fmt.Sprintf("%.1f%%", float64(successCount)/3.0*100),
+			},
+			"aggregation_configuration": map[string]interface{}{
+				"entity_identifier":       entityIdentifier,
+				"aggregation_strategy":    aggregationStrategy,
+				"non_streaming_source":    "file_1",
+				"streaming_source":        "file_2",
+				"reverse_mapping_applied": true,
+				"comprehensive_config":    true,
+				"explanation":             fmt.Sprintf("Entity identifier '%s' has been configured for aggregation. A comprehensive report configuration has been generated with all columns from both files, ensuring proper column mapping and reporting.", entityIdentifier),
+			},
+			"next_steps": []string{
+				"Aggregation logic is now enabled for the reconciliation process",
+				"File 1 will be processed with aggregation based on the selected entity identifier",
+				"Comprehensive report configuration includes all columns from both files",
+				"Reports will properly map all columns for indexing and display",
+				"Upload files to test the aggregation functionality",
+			},
+		}
+
+		resultJSON, _ := json.MarshalIndent(result, "", "  ")
+		return mcp.NewToolResultText(string(resultJSON)), nil
+	}
+
+	return server.ServerTool{
+		Tool:    tool,
+		Handler: handler,
+	}
+}

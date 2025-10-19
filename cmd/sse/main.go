@@ -48,11 +48,23 @@ func main() {
 	mcpServer.AddTools(
 		mcp.CalculatorTool(),
 		mcp.SystemInfoTool(),
+		mcp.ReconFileAnalysisTool(),
+		mcp.ReconMasterSourceTool(),
+		mcp.ReconMerchantSourceTool(),
+		mcp.ReconStateRuleTool(),
+		mcp.ReconProcessSetupTool(),
+		mcp.ReconAggregationTool(),
 	)
 
 	mcpServer.AddPrompts(
 		mcp.MathTutorPrompt(),
 		mcp.CodeReviewPrompt(),
+		mcp.ReconFileAnalysisPrompt(),
+		mcp.ReconMasterSourcePrompt(),
+		mcp.ReconMerchantSourcePrompt(),
+		mcp.ReconStateRulePrompt(),
+		mcp.ReconProcessSetupPrompt(),
+		mcp.ReconAggregationPrompt(),
 	)
 
 	mcpServer.AddResources(

@@ -845,7 +845,7 @@ Upon successful completion, the merchant onboarding process will be complete and
 - Dashboard monitoring and reporting
 - Scheduling and alerting configuration
 
-Execute all API calls sequentially, capture all response IDs, and provide comprehensive completion summary.`, lookupStrategy, processType, reportingConfig, lookupStrategy, reportingConfig, reportingConfig)
+Execute all API calls sequentially, capture all response IDs, and provide comprehensive completion summary.`, lookupStrategy, processType, reportingConfig, lookupStrategy, reportingConfig)
 
 		messages := []mcp.PromptMessage{
 			mcp.NewPromptMessage(
@@ -856,6 +856,137 @@ Execute all API calls sequentially, capture all response IDs, and provide compre
 
 		return mcp.NewGetPromptResult(
 			fmt.Sprintf("Recon-SaaS Process Setup: %s (%s lookup, %s reporting)", processType, lookupStrategy, reportingConfig),
+			messages,
+		), nil
+	}
+
+	return server.ServerPrompt{
+		Prompt:  prompt,
+		Handler: handler,
+	}
+}
+
+// ReconAggregationPrompt Aggregation configuration prompt for recon-saas
+func ReconAggregationPrompt() server.ServerPrompt {
+	prompt := mcp.NewPrompt("recon_aggregation",
+		mcp.WithPromptDescription("Configure aggregation logic for recon-saas by updating entity identifier and enabling aggregation for non-streaming sources"),
+		mcp.WithArgument("file1_path",
+			mcp.ArgumentDescription("Full file path to the first reconciliation file (aggregation will be applied to this file)"),
+		),
+		mcp.WithArgument("file2_path",
+			mcp.ArgumentDescription("Full file path to the second reconciliation file"),
+		),
+		mcp.WithArgument("entity_identifier",
+			mcp.ArgumentDescription("Column name to be used as entity identifier (e.g., UTR, VID, Transaction ID)"),
+		),
+		mcp.WithArgument("aggregation_strategy",
+			mcp.ArgumentDescription("Strategy for aggregation (sum, count, avg, max, min)"),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		file1Path := ""
+		if fp1, exists := request.Params.Arguments["file1_path"]; exists && fp1 != "" {
+			file1Path = fp1
+		}
+
+		file2Path := ""
+		if fp2, exists := request.Params.Arguments["file2_path"]; exists && fp2 != "" {
+			file2Path = fp2
+		}
+
+		entityIdentifier := "UTR"
+		if ei, exists := request.Params.Arguments["entity_identifier"]; exists && ei != "" {
+			entityIdentifier = ei
+		}
+
+		aggregationStrategy := "sum"
+		if as, exists := request.Params.Arguments["aggregation_strategy"]; exists && as != "" {
+			aggregationStrategy = as
+		}
+
+		elaboratePrompt := fmt.Sprintf(`You are an intelligent MCP server tool designed to configure aggregation logic for recon-saas. Your responsibility is to update entity identifier configurations and enable aggregation for non-streaming sources through a sequence of 3 PATCH API calls.
+
+**CORE RESPONSIBILITIES:**
+
+**Aggregation Configuration:**
+- Configure entity identifier for aggregation logic
+- Enable aggregation for non-streaming sources (File 1)
+- Update report configuration with reverse mapping
+- Execute 3 sequential PATCH API calls
+
+**USER INPUT REQUIRED:**
+Please provide the following information:
+1. **File 1 Path**: %s (aggregation will be applied to this file)
+2. **File 2 Path**: %s (reference file)
+3. **Entity Identifier**: %s (column name to use as entity identifier)
+4. **Aggregation Strategy**: %s (sum, count, avg, max, min)
+
+**IMPORTANT NOTES:**
+- **File 1** is the aggregation file (non-streaming source)
+- **File 2** is the reference file (streaming source)
+- Entity identifier must exist in File 1 columns
+- Aggregation logic applies only to non-streaming sources
+
+**API EXECUTION SEQUENCE:**
+
+**Step 1: Update Master Source Mapping**
+- **Endpoint**: {{recon-saas_base_url}}/v1/admin-recon-saas/sources/update/{master_source_id}
+- **Method**: PATCH
+- **Purpose**: Update mapping config to set entity identifier column as EntityID
+- **Payload**: Update mapping_config with entity identifier mapping
+
+**Step 2: Enable Lookup Aggregation**
+- **Endpoint**: {{recon-saas_base_url}}/v1/admin-recon-saas/lookup/{lookup_id}
+- **Method**: PATCH
+- **Purpose**: Enable aggregation logic in lookup configuration
+- **Payload**: Set aggregation_logic to true
+
+**Step 3: Update Master Recon Process Report Config**
+- **Endpoint**: {{recon-saas_base_url}}/v1/admin-recon-saas/recon_process/master/{master_recon_process_id}
+- **Method**: PATCH
+- **Purpose**: Update report config with reverse mapping for entity identifier
+- **Payload**: Update source_report_config with reverse mapping
+
+**REVERSE MAPPING LOGIC:**
+The report configuration needs reverse mapping because:
+- MCP stores the original column name (e.g., "VID") as entity identifier
+- When reports are generated, the system needs to map it back to "Entity identifier"
+- This ensures proper column indexing and reporting functionality
+
+**Example Reverse Mapping:**
+The report_column will be set to the selected entity identifier (%s) and source_column will be "Entity identifier"
+
+**VALIDATION CHECKLIST:**
+- File 1 path is provided and accessible
+- File 2 path is provided and accessible
+- Entity identifier exists in File 1 columns
+- Aggregation strategy is valid (sum, count, avg, max, min)
+- All required IDs from previous onboarding steps are available
+
+**ERROR HANDLING:**
+- 400 Bad Request: Invalid entity identifier or file paths
+- 401 Unauthorized: Check authentication credentials
+- 404 Not Found: Master source, lookup, or recon process ID doesn't exist
+- 422 Unprocessable Entity: Business logic validation errors
+
+**EXECUTION SUMMARY:**
+The tool will execute 3 PATCH API calls in sequence:
+1. Master source mapping update
+2. Lookup aggregation enablement
+3. Master recon process report config update
+
+All API calls will be executed with proper error handling and comprehensive result reporting.`, file1Path, file2Path, entityIdentifier, aggregationStrategy, entityIdentifier)
+
+		messages := []mcp.PromptMessage{
+			mcp.NewPromptMessage(
+				mcp.RoleUser,
+				mcp.NewTextContent(elaboratePrompt),
+			),
+		}
+
+		return mcp.NewGetPromptResult(
+			fmt.Sprintf("Recon-SaaS Aggregation Configuration: %s strategy for %s", aggregationStrategy, entityIdentifier),
 			messages,
 		), nil
 	}
