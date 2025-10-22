@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -1534,4 +1535,238 @@ func updateMasterReconProcessReportConfigComprehensive(ctx context.Context, mast
 
 	_, err := makeReconSaaSAPICall(ctx, "PATCH", fmt.Sprintf("/v1/admin-recon-saas/recon_process/master/%s", masterReconProcessID), payload)
 	return err
+}
+
+// getRecordCount extracts record count from file analysis
+func getRecordCount(analysis map[string]interface{}) int {
+	if recordCount, ok := analysis["record_count"].(int); ok {
+		return recordCount
+	}
+	return 0
+}
+
+// generateAggregationPreview generates a preview of how aggregation will work
+func generateAggregationPreview(file1Path, file2Path, entityIdentifier, aggregationStrategy, file1Type, file2Type string) map[string]interface{} {
+	// Read and parse both files
+	file1Data, err1 := readFileData(file1Path, file1Type)
+	file2Data, err2 := readFileData(file2Path, file2Type)
+	
+	if err1 != nil || err2 != nil {
+		return map[string]interface{}{
+			"error": "Failed to read files for preview",
+			"file1_error": err1,
+			"file2_error": err2,
+		}
+	}
+
+	// Find entity identifier column index
+	entityColIndex := -1
+	for i, col := range file1Data.Headers {
+		if col == entityIdentifier {
+			entityColIndex = i
+			break
+		}
+	}
+
+	if entityColIndex == -1 {
+		return map[string]interface{}{
+			"error": fmt.Sprintf("Entity identifier '%s' not found in file headers", entityIdentifier),
+		}
+	}
+
+	// Find amount column index (assuming it's called "Amount")
+	amountColIndex := -1
+	for i, col := range file1Data.Headers {
+		if strings.ToLower(col) == "amount" {
+			amountColIndex = i
+			break
+		}
+	}
+
+	if amountColIndex == -1 {
+		return map[string]interface{}{
+			"error": "Amount column not found in file headers",
+		}
+	}
+
+	// Perform aggregation on file 1
+	aggregatedData := make(map[string]float64)
+	originalRecords := make(map[string][]map[string]interface{})
+
+	for _, record := range file1Data.Records {
+		if len(record) > entityColIndex && len(record) > amountColIndex {
+			entityValue := record[entityColIndex]
+			amountStr := record[amountColIndex]
+			
+			// Convert amount to float
+			amount, err := strconv.ParseFloat(amountStr, 64)
+			if err != nil {
+				continue // Skip invalid amounts
+			}
+
+			// Store original record
+			recordMap := make(map[string]interface{})
+			for i, header := range file1Data.Headers {
+				if i < len(record) {
+					recordMap[header] = record[i]
+				}
+			}
+			originalRecords[entityValue] = append(originalRecords[entityValue], recordMap)
+
+			// Aggregate amounts
+			switch aggregationStrategy {
+			case "sum":
+				aggregatedData[entityValue] += amount
+			case "count":
+				aggregatedData[entityValue] += 1
+			case "avg":
+				// For avg, we'll calculate sum and count separately
+				if _, exists := aggregatedData[entityValue]; !exists {
+					aggregatedData[entityValue] = amount
+				} else {
+					aggregatedData[entityValue] += amount
+				}
+			case "max":
+				if _, exists := aggregatedData[entityValue]; !exists || amount > aggregatedData[entityValue] {
+					aggregatedData[entityValue] = amount
+				}
+			case "min":
+				if _, exists := aggregatedData[entityValue]; !exists || amount < aggregatedData[entityValue] {
+					aggregatedData[entityValue] = amount
+				}
+			}
+		}
+	}
+
+	// Create file 2 lookup map
+	file2Lookup := make(map[string]float64)
+	for _, record := range file2Data.Records {
+		if len(record) > entityColIndex && len(record) > amountColIndex {
+			entityValue := record[entityColIndex]
+			amountStr := record[amountColIndex]
+			
+			amount, err := strconv.ParseFloat(amountStr, 64)
+			if err == nil {
+				file2Lookup[entityValue] = amount
+			}
+		}
+	}
+
+	// Generate reconciliation results
+	var reconciledRecords []map[string]interface{}
+	var unreconciledRecords []map[string]interface{}
+
+	for entityValue, aggregatedAmount := range aggregatedData {
+		if file2Amount, exists := file2Lookup[entityValue]; exists {
+			// Check if amounts match (with small tolerance for floating point)
+			if math.Abs(aggregatedAmount-file2Amount) < 0.01 {
+				reconciledRecords = append(reconciledRecords, map[string]interface{}{
+					"entity_id": entityValue,
+					"file1_aggregated_amount": aggregatedAmount,
+					"file2_amount": file2Amount,
+					"status": "RECONCILED",
+					"original_records_count": len(originalRecords[entityValue]),
+					"original_records": originalRecords[entityValue],
+				})
+			} else {
+				unreconciledRecords = append(unreconciledRecords, map[string]interface{}{
+					"entity_id": entityValue,
+					"file1_aggregated_amount": aggregatedAmount,
+					"file2_amount": file2Amount,
+					"status": "AMOUNT_MISMATCH",
+					"difference": math.Abs(aggregatedAmount - file2Amount),
+					"original_records_count": len(originalRecords[entityValue]),
+					"original_records": originalRecords[entityValue],
+				})
+			}
+		} else {
+			unreconciledRecords = append(unreconciledRecords, map[string]interface{}{
+				"entity_id": entityValue,
+				"file1_aggregated_amount": aggregatedAmount,
+				"file2_amount": 0,
+				"status": "MISSING_IN_FILE2",
+				"original_records_count": len(originalRecords[entityValue]),
+				"original_records": originalRecords[entityValue],
+			})
+		}
+	}
+
+	// Check for records in file 2 that don't exist in file 1
+	for entityValue, amount := range file2Lookup {
+		if _, exists := aggregatedData[entityValue]; !exists {
+			unreconciledRecords = append(unreconciledRecords, map[string]interface{}{
+				"entity_id": entityValue,
+				"file1_aggregated_amount": 0,
+				"file2_amount": amount,
+				"status": "MISSING_IN_FILE1",
+				"original_records_count": 0,
+				"original_records": []map[string]interface{}{},
+			})
+		}
+	}
+
+	return map[string]interface{}{
+		"preview_enabled": true,
+		"aggregation_strategy": aggregationStrategy,
+		"entity_identifier": entityIdentifier,
+		"total_entities": len(aggregatedData),
+		"reconciled_count": len(reconciledRecords),
+		"unreconciled_count": len(unreconciledRecords),
+		"reconciliation_rate": fmt.Sprintf("%.1f%%", float64(len(reconciledRecords))/float64(len(aggregatedData))*100),
+		"reconciled_records": reconciledRecords,
+		"unreconciled_records": unreconciledRecords,
+		"summary": map[string]interface{}{
+			"file1_total_records": len(file1Data.Records),
+			"file2_total_records": len(file2Data.Records),
+			"unique_entities_file1": len(aggregatedData),
+			"unique_entities_file2": len(file2Lookup),
+		},
+	}
+}
+
+// FileData represents parsed file data
+type FileData struct {
+	Headers []string
+	Records [][]string
+}
+
+// readFileData reads and parses CSV/Excel files
+func readFileData(filePath, fileType string) (*FileData, error) {
+	if fileType == "csv" {
+		return readCSVFile(filePath)
+	} else if fileType == "excel" {
+		return readExcelFile(filePath)
+	}
+	return nil, fmt.Errorf("unsupported file type: %s", fileType)
+}
+
+// readCSVFile reads and parses CSV file
+func readCSVFile(filePath string) (*FileData, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(records) == 0 {
+		return nil, fmt.Errorf("file is empty")
+	}
+
+	return &FileData{
+		Headers: records[0],
+		Records: records[1:],
+	}, nil
+}
+
+// readExcelFile reads and parses Excel file (simplified implementation)
+func readExcelFile(filePath string) (*FileData, error) {
+	// For now, return an error as we don't have Excel parsing library
+	// In a real implementation, you would use a library like github.com/xuri/excelize
+	return nil, fmt.Errorf("Excel file parsing not implemented yet")
 }

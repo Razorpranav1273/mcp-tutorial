@@ -929,6 +929,12 @@ func ReconAggregationTool() server.ServerTool {
 			return mcp.NewToolResultError(fmt.Sprintf("Entity identifier '%s' not found in file 1 columns", entityIdentifier)), nil
 		}
 
+		// Generate aggregation preview if files have less than 40 records
+		var aggregationPreview map[string]interface{}
+		if getRecordCount(analysis1) <= 40 && getRecordCount(analysis2) <= 40 {
+			aggregationPreview = generateAggregationPreview(file1Path, file2Path, entityIdentifier, aggregationStrategy, file1Type, file2Type)
+		}
+
 		// Generate comprehensive report configuration based on file analysis
 		comprehensiveReportConfig := generateComprehensiveReportConfig(analysis1, analysis2, entityIdentifier, masterSourceID1, masterSourceID2)
 
@@ -939,6 +945,7 @@ func ReconAggregationTool() server.ServerTool {
 		err1 := updateMasterSourceMapping(ctx, masterSourceID1, entityIdentifier)
 		apiTestResults["master_source_update"] = map[string]interface{}{
 			"endpoint": fmt.Sprintf("/v1/admin-recon-saas/sources/update/%s", masterSourceID1),
+			"patch_id": masterSourceID1,
 			"success":  err1 == nil,
 			"error": func() string {
 				if err1 != nil {
@@ -952,6 +959,7 @@ func ReconAggregationTool() server.ServerTool {
 		err2 := updateLookupAggregation(ctx, lookupID)
 		apiTestResults["lookup_update"] = map[string]interface{}{
 			"endpoint": fmt.Sprintf("/v1/admin-recon-saas/lookup/%s", lookupID),
+			"patch_id": lookupID,
 			"success":  err2 == nil,
 			"error": func() string {
 				if err2 != nil {
@@ -965,6 +973,7 @@ func ReconAggregationTool() server.ServerTool {
 		err3 := updateMasterReconProcessReportConfigComprehensive(ctx, masterReconProcessID, comprehensiveReportConfig)
 		apiTestResults["master_recon_process_update"] = map[string]interface{}{
 			"endpoint": fmt.Sprintf("/v1/admin-recon-saas/recon_process/master/%s", masterReconProcessID),
+			"patch_id": masterReconProcessID,
 			"success":  err3 == nil,
 			"error": func() string {
 				if err3 != nil {
@@ -990,6 +999,16 @@ func ReconAggregationTool() server.ServerTool {
 			"status":           "success",
 			"message":          "Aggregation logic configured successfully with comprehensive report configuration",
 			"api_test_results": apiTestResults,
+			"patch_api_ids": map[string]interface{}{
+				"master_source_patch_id":        masterSourceID1,
+				"lookup_patch_id":               lookupID,
+				"master_recon_process_patch_id": masterReconProcessID,
+				"patch_endpoints": []string{
+					fmt.Sprintf("PATCH /v1/admin-recon-saas/sources/update/%s", masterSourceID1),
+					fmt.Sprintf("PATCH /v1/admin-recon-saas/lookup/%s", lookupID),
+					fmt.Sprintf("PATCH /v1/admin-recon-saas/recon_process/master/%s", masterReconProcessID),
+				},
+			},
 			"provided_ids": map[string]interface{}{
 				"master_source_id":        masterSourceID1,
 				"master_source_id_2":      masterSourceID2,
@@ -1017,6 +1036,7 @@ func ReconAggregationTool() server.ServerTool {
 				"comprehensive_config":    true,
 				"explanation":             fmt.Sprintf("Entity identifier '%s' has been configured for aggregation. A comprehensive report configuration has been generated with all columns from both files, ensuring proper column mapping and reporting.", entityIdentifier),
 			},
+			"aggregation_preview": aggregationPreview,
 			"next_steps": []string{
 				"Aggregation logic is now enabled for the reconciliation process",
 				"File 1 will be processed with aggregation based on the selected entity identifier",
