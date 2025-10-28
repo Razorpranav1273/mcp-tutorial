@@ -54,6 +54,7 @@ func main() {
 		mcp.ReconStateRuleTool(),
 		mcp.ReconProcessSetupTool(),
 		mcp.ReconAggregationTool(),
+		mcp.ReconExtractionTool(),
 	)
 
 	mcpServer.AddPrompts(
@@ -65,6 +66,7 @@ func main() {
 		mcp.ReconStateRulePrompt(),
 		mcp.ReconProcessSetupPrompt(),
 		mcp.ReconAggregationPrompt(),
+		mcp.ReconExtractionPrompt(),
 	)
 
 	mcpServer.AddResources(

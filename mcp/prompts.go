@@ -996,3 +996,118 @@ All API calls will be executed with proper error handling and comprehensive resu
 		Handler: handler,
 	}
 }
+
+// ReconExtractionPrompt Prompt for regex extraction configuration
+func ReconExtractionPrompt() server.ServerPrompt {
+	prompt := mcp.NewPrompt("recon_extraction",
+		mcp.WithPromptDescription("Configure regex extraction for columns in master source"),
+		mcp.WithArgument("target_column",
+			mcp.ArgumentDescription("Column name to apply extraction on (e.g., Txn Description, Remarks, Payment Info)"),
+		),
+		mcp.WithArgument("extraction_pattern",
+			mcp.ArgumentDescription("Regex pattern to extract from the target column (e.g., UPI-\\d{6} to extract UPI reference)"),
+		),
+		mcp.WithArgument("output_column_name",
+			mcp.ArgumentDescription("Name for the output column (leave blank to keep same name as target column)"),
+		),
+		mcp.WithArgument("master_source_id",
+			mcp.ArgumentDescription("Master source ID from recon_master_source tool"),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		targetColumn := ""
+		if tc, exists := request.Params.Arguments["target_column"]; exists && tc != "" {
+			targetColumn = tc
+		}
+
+		extractionPattern := ""
+		if ep, exists := request.Params.Arguments["extraction_pattern"]; exists && ep != "" {
+			extractionPattern = ep
+		}
+
+		outputColumnName := targetColumn
+		if ocn, exists := request.Params.Arguments["output_column_name"]; exists && ocn != "" {
+			outputColumnName = ocn
+		}
+
+		elaboratePrompt := fmt.Sprintf(`You are an intelligent MCP server tool designed to configure regex extraction logic for recon-saas by updating the transformation config in master sources. Your responsibility is to apply regex extraction patterns to columns and update the master source configuration.
+
+**CORE RESPONSIBILITIES:**
+
+**Extraction Configuration:**
+- Extract data from columns using regex patterns
+- Update transformation_config in master source via PATCH API
+- Validate regex patterns before applying
+- Append to existing transformations
+
+**USER INPUT REQUIRED:**
+Please provide the following information:
+1. **Target Column**: %s (column name to apply extraction on)
+2. **Extraction Pattern**: %s (regex pattern to extract from the column)
+3. **Output Column Name**: %s (name for the output column)
+4. **Master Source ID**: Required for updating the source
+
+**IMPORTANT NOTES:**
+- The target column is the source column where extraction will be applied
+- The extraction pattern should be a valid regex pattern
+- The output column is where extracted data will be stored
+- Transformation config is appended, not replaced
+
+**API EXECUTION:**
+
+**Step 1: Fetch Current Transformation Config**
+- **Endpoint**: {{recon-saas_base_url}}/v1/admin-recon-saas/sources/{master_source_id}
+- **Method**: GET
+- **Purpose**: Fetch existing transformation configurations
+
+**Step 2: Update Transformation Config**
+- **Endpoint**: {{recon-saas_base_url}}/v1/admin-recon-saas/sources/update/{master_source_id}
+- **Method**: PATCH
+- **Payload**: Append new regex extraction transformation to existing config
+
+**TRANSFORMATION FORMAT:**
+json
+{
+  "logic": {
+    "regex_extraction": {
+      "source_column": "%s",
+      "pattern": "%s"
+    }
+  },
+  "output_columns": ["%s"]
+}
+
+**VALIDATION CHECKLIST:**
+- Target column exists in the source
+- Regex pattern is valid
+- Master source ID is provided
+- Output column name is specified
+
+**ERROR HANDLING:**
+- 400 Bad Request: Invalid regex pattern or missing parameters
+- 401 Unauthorized: Check authentication credentials
+- 404 Not Found: Master source ID doesn't exist
+- 422 Unprocessable Entity: Business logic validation errors
+
+**EXECUTION SUMMARY:**
+The tool will execute PATCH API call to update the master source with new regex extraction transformation.`, targetColumn, extractionPattern, outputColumnName, targetColumn, extractionPattern, outputColumnName)
+
+		messages := []mcp.PromptMessage{
+			mcp.NewPromptMessage(
+				mcp.RoleUser,
+				mcp.NewTextContent(elaboratePrompt),
+			),
+		}
+
+		return mcp.NewGetPromptResult(
+			fmt.Sprintf("Recon-SaaS Extraction Configuration: Extract from %s using pattern %s", targetColumn, extractionPattern),
+			messages,
+		), nil
+	}
+
+	return server.ServerPrompt{
+		Prompt:  prompt,
+		Handler: handler,
+	}
+}

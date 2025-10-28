@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -1063,6 +1064,87 @@ func ReconAggregationTool() server.ServerTool {
 				"Comprehensive report configuration includes all columns from both files",
 				"Reports will properly map all columns for indexing and display",
 				"Upload files to test the aggregation functionality",
+			},
+		}
+
+		resultJSON, _ := json.MarshalIndent(result, "", "  ")
+		return mcp.NewToolResultText(string(resultJSON)), nil
+	}
+
+	return server.ServerTool{
+		Tool:    tool,
+		Handler: handler,
+	}
+}
+
+// ReconExtractionTool Extraction tool for recon-saas to apply regex extraction on columns
+func ReconExtractionTool() server.ServerTool {
+	tool := mcp.NewTool("recon_extraction",
+		mcp.WithDescription("Apply regex extraction on a column and update transformation config in master source"),
+		mcp.WithString("target_column",
+			mcp.Description("Column name to apply extraction on (e.g., Txn Description, Remarks, Payment Info)"),
+			mcp.Required(),
+		),
+		mcp.WithString("extraction_pattern",
+			mcp.Description("Regex pattern to extract from the target column (e.g., for 'ABC-123-JKL' enter pattern to extract '123')"),
+			mcp.Required(),
+		),
+		mcp.WithString("output_column_name",
+			mcp.Description("Name for the output column (leave blank to keep same name as target column)"),
+		),
+		mcp.WithString("master_source_id",
+			mcp.Description("Master source ID from recon_master_source tool"),
+			mcp.Required(),
+		),
+	)
+
+	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		targetColumn, err := request.RequireString("target_column")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		extractionPattern, err := request.RequireString("extraction_pattern")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		outputColumnName := request.GetString("output_column_name", targetColumn)
+		masterSourceID, err := request.RequireString("master_source_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		// Validate regex pattern
+		_, err = regexp.Compile(extractionPattern)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Invalid regex pattern: %v", err)), nil
+		}
+
+		// Update transformation config
+		err = updateTransformationConfig(ctx, masterSourceID, targetColumn, extractionPattern, outputColumnName)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to update transformation config: %v", err)), nil
+		}
+
+		result := map[string]interface{}{
+			"status":  "success",
+			"message": "Regex extraction configuration added successfully",
+			"config": map[string]interface{}{
+				"target_column":      targetColumn,
+				"extraction_pattern": extractionPattern,
+				"output_column":      outputColumnName,
+				"regex_expression":   "def regex_exec(text: str, condition: str):\n    \"\"\"\n    extract the substring according to the given regex condition\n    :param text: Base String\n    :param condition: Matching regex condition.\n    :return String : Extracted Substring\n    \"\"\"\n    match = re.search(condition, text)\n    if match:\n        return match.group()\n    else:\n        return text",
+			},
+			"patch_api": map[string]interface{}{
+				"endpoint": fmt.Sprintf("/v1/admin-recon-saas/sources/update/%s", masterSourceID),
+				"method":   "PATCH",
+				"patch_id": masterSourceID,
+			},
+			"next_steps": []string{
+				"Extraction logic has been added to transformation config",
+				"Upload files to test the extraction functionality",
+				"The extracted values will be available in the output column",
 			},
 		}
 

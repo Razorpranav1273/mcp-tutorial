@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -1890,4 +1891,66 @@ func validateEntityIDVsEntityIdentifier(ctx context.Context, masterSourceID, ent
 			"why_different":                "They should be different to enable proper aggregation logic",
 		},
 	}, nil
+}
+
+// updateTransformationConfig updates master source with regex extraction transformation config
+func updateTransformationConfig(ctx context.Context, masterSourceID, targetColumn, extractionPattern, outputColumnName string) error {
+	// Try to get the existing transformation config
+	// If it fails, proceed with empty transformations list
+	result, err := makeReconSaaSAPICall(ctx, "GET", fmt.Sprintf("/v1/admin-recon-saas/sources/%s", masterSourceID), nil)
+
+	var existingTransformations []map[string]interface{}
+
+	// Only extract transformations if GET succeeded
+	if err == nil {
+		if config, ok := result["config"].(map[string]interface{}); ok {
+			if transformations, ok := config["transformation_config"].([]interface{}); ok {
+				for _, t := range transformations {
+					if tMap, ok := t.(map[string]interface{}); ok {
+						existingTransformations = append(existingTransformations, tMap)
+					}
+				}
+			}
+		}
+	}
+	// If GET failed, proceed with empty transformations list
+
+	// Create the new transformation entry for regex extraction
+	// Format should match: {"logic": {"regex_extraction": {"source_column": "...", "pattern": "..."}}, "output_columns": [...]}
+	// Based on the user's example format
+	newTransformation := map[string]interface{}{
+		"logic": map[string]interface{}{
+			"regex_extraction": map[string]interface{}{
+				"source_column": targetColumn,
+				"pattern":       extractionPattern,
+			},
+		},
+		"output_columns": []string{outputColumnName},
+	}
+
+	// Append to existing transformations
+	existingTransformations = append(existingTransformations, newTransformation)
+
+	// Prepare the payload for PATCH request
+	// Send transformation_config directly, not nested in config
+	payload := map[string]interface{}{
+		"transformation_config": existingTransformations,
+	}
+
+	// Call the PATCH API
+	endpoint := fmt.Sprintf("/v1/admin-recon-saas/sources/update/%s", masterSourceID)
+	log.Printf("Calling PATCH API: %s with payload: %v", endpoint, payload)
+
+	// Log the full payload for debugging
+	payloadBytes, _ := json.Marshal(payload)
+	log.Printf("PATCH payload JSON: %s", string(payloadBytes))
+
+	result, err = makeReconSaaSAPICall(ctx, "PATCH", endpoint, payload)
+	if err != nil {
+		log.Printf("PATCH API call failed: %v", err)
+		return fmt.Errorf("failed to update transformation config via PATCH: %v", err)
+	}
+
+	log.Printf("PATCH API call succeeded with response: %v", result)
+	return nil
 }
