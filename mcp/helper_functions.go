@@ -199,7 +199,7 @@ func analyzeExcelFile(filePath, fileID string) (map[string]interface{}, error) {
 	// Get the first sheet name (or use the active sheet)
 	sheets := file.GetSheetList()
 	if len(sheets) == 0 {
-		return nil, fmt.Errorf("Excel file %s has no sheets", filePath)
+		return nil, fmt.Errorf("excel file %s has no sheets", filePath)
 	}
 
 	sheetName := sheets[0] // Use the first sheet
@@ -211,7 +211,7 @@ func analyzeExcelFile(filePath, fileID string) (map[string]interface{}, error) {
 	}
 
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("Excel sheet %s is empty", sheetName)
+		return nil, fmt.Errorf("excel sheet %s is empty", sheetName)
 	}
 
 	// Extract headers and data rows
@@ -1353,12 +1353,6 @@ func generateComprehensiveReportConfig(file1Analysis, file2Analysis map[string]i
 	frontendCols := make([]string, 0)
 	seenColumns := make(map[string]bool)
 
-	// Add EntityID and EntityIdentifier first
-	frontendCols = append(frontendCols, "EntityID")
-	frontendCols = append(frontendCols, "EntityIdentifier")
-	seenColumns["EntityID"] = true
-	seenColumns["EntityIdentifier"] = true
-
 	// Add columns from file 1
 	for _, col := range file1Columns {
 		if !seenColumns[col] {
@@ -1539,7 +1533,7 @@ func updateMasterReconProcessReportConfigComprehensive(ctx context.Context, mast
 
 // getRecordCount extracts record count from file analysis
 func getRecordCount(analysis map[string]interface{}) int {
-	if recordCount, ok := analysis["record_count"].(int); ok {
+	if recordCount, ok := analysis["total_rows"].(int); ok {
 		return recordCount
 	}
 	return 0
@@ -1550,10 +1544,10 @@ func generateAggregationPreview(file1Path, file2Path, entityIdentifier, aggregat
 	// Read and parse both files
 	file1Data, err1 := readFileData(file1Path, file1Type)
 	file2Data, err2 := readFileData(file2Path, file2Type)
-	
+
 	if err1 != nil || err2 != nil {
 		return map[string]interface{}{
-			"error": "Failed to read files for preview",
+			"error":       "Failed to read files for preview",
 			"file1_error": err1,
 			"file2_error": err2,
 		}
@@ -1597,7 +1591,7 @@ func generateAggregationPreview(file1Path, file2Path, entityIdentifier, aggregat
 		if len(record) > entityColIndex && len(record) > amountColIndex {
 			entityValue := record[entityColIndex]
 			amountStr := record[amountColIndex]
-			
+
 			// Convert amount to float
 			amount, err := strconv.ParseFloat(amountStr, 64)
 			if err != nil {
@@ -1644,7 +1638,7 @@ func generateAggregationPreview(file1Path, file2Path, entityIdentifier, aggregat
 		if len(record) > entityColIndex && len(record) > amountColIndex {
 			entityValue := record[entityColIndex]
 			amountStr := record[amountColIndex]
-			
+
 			amount, err := strconv.ParseFloat(amountStr, 64)
 			if err == nil {
 				file2Lookup[entityValue] = amount
@@ -1661,32 +1655,32 @@ func generateAggregationPreview(file1Path, file2Path, entityIdentifier, aggregat
 			// Check if amounts match (with small tolerance for floating point)
 			if math.Abs(aggregatedAmount-file2Amount) < 0.01 {
 				reconciledRecords = append(reconciledRecords, map[string]interface{}{
-					"entity_id": entityValue,
+					"entity_id":               entityValue,
 					"file1_aggregated_amount": aggregatedAmount,
-					"file2_amount": file2Amount,
-					"status": "RECONCILED",
-					"original_records_count": len(originalRecords[entityValue]),
-					"original_records": originalRecords[entityValue],
+					"file2_amount":            file2Amount,
+					"status":                  "RECONCILED",
+					"original_records_count":  len(originalRecords[entityValue]),
+					"original_records":        originalRecords[entityValue],
 				})
 			} else {
 				unreconciledRecords = append(unreconciledRecords, map[string]interface{}{
-					"entity_id": entityValue,
+					"entity_id":               entityValue,
 					"file1_aggregated_amount": aggregatedAmount,
-					"file2_amount": file2Amount,
-					"status": "AMOUNT_MISMATCH",
-					"difference": math.Abs(aggregatedAmount - file2Amount),
-					"original_records_count": len(originalRecords[entityValue]),
-					"original_records": originalRecords[entityValue],
+					"file2_amount":            file2Amount,
+					"status":                  "AMOUNT_MISMATCH",
+					"difference":              math.Abs(aggregatedAmount - file2Amount),
+					"original_records_count":  len(originalRecords[entityValue]),
+					"original_records":        originalRecords[entityValue],
 				})
 			}
 		} else {
 			unreconciledRecords = append(unreconciledRecords, map[string]interface{}{
-				"entity_id": entityValue,
+				"entity_id":               entityValue,
 				"file1_aggregated_amount": aggregatedAmount,
-				"file2_amount": 0,
-				"status": "MISSING_IN_FILE2",
-				"original_records_count": len(originalRecords[entityValue]),
-				"original_records": originalRecords[entityValue],
+				"file2_amount":            0,
+				"status":                  "MISSING_IN_FILE2",
+				"original_records_count":  len(originalRecords[entityValue]),
+				"original_records":        originalRecords[entityValue],
 			})
 		}
 	}
@@ -1695,29 +1689,35 @@ func generateAggregationPreview(file1Path, file2Path, entityIdentifier, aggregat
 	for entityValue, amount := range file2Lookup {
 		if _, exists := aggregatedData[entityValue]; !exists {
 			unreconciledRecords = append(unreconciledRecords, map[string]interface{}{
-				"entity_id": entityValue,
+				"entity_id":               entityValue,
 				"file1_aggregated_amount": 0,
-				"file2_amount": amount,
-				"status": "MISSING_IN_FILE1",
-				"original_records_count": 0,
-				"original_records": []map[string]interface{}{},
+				"file2_amount":            amount,
+				"status":                  "MISSING_IN_FILE1",
+				"original_records_count":  0,
+				"original_records":        []map[string]interface{}{},
 			})
 		}
 	}
 
+	// Calculate reconciliation rate safely
+	reconciliationRate := 0.0
+	if len(aggregatedData) > 0 {
+		reconciliationRate = float64(len(reconciledRecords)) / float64(len(aggregatedData)) * 100
+	}
+
 	return map[string]interface{}{
-		"preview_enabled": true,
+		"preview_enabled":      true,
 		"aggregation_strategy": aggregationStrategy,
-		"entity_identifier": entityIdentifier,
-		"total_entities": len(aggregatedData),
-		"reconciled_count": len(reconciledRecords),
-		"unreconciled_count": len(unreconciledRecords),
-		"reconciliation_rate": fmt.Sprintf("%.1f%%", float64(len(reconciledRecords))/float64(len(aggregatedData))*100),
-		"reconciled_records": reconciledRecords,
+		"entity_identifier":    entityIdentifier,
+		"total_entities":       len(aggregatedData),
+		"reconciled_count":     len(reconciledRecords),
+		"unreconciled_count":   len(unreconciledRecords),
+		"reconciliation_rate":  fmt.Sprintf("%.1f%%", reconciliationRate),
+		"reconciled_records":   reconciledRecords,
 		"unreconciled_records": unreconciledRecords,
 		"summary": map[string]interface{}{
-			"file1_total_records": len(file1Data.Records),
-			"file2_total_records": len(file2Data.Records),
+			"file1_total_records":   len(file1Data.Records),
+			"file2_total_records":   len(file2Data.Records),
 			"unique_entities_file1": len(aggregatedData),
 			"unique_entities_file2": len(file2Lookup),
 		},
@@ -1764,9 +1764,130 @@ func readCSVFile(filePath string) (*FileData, error) {
 	}, nil
 }
 
-// readExcelFile reads and parses Excel file (simplified implementation)
+// readExcelFile reads and parses Excel file
 func readExcelFile(filePath string) (*FileData, error) {
-	// For now, return an error as we don't have Excel parsing library
-	// In a real implementation, you would use a library like github.com/xuri/excelize
-	return nil, fmt.Errorf("Excel file parsing not implemented yet")
+	file, err := excelize.OpenFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open Excel file: %v", err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Printf("Warning: failed to close Excel file: %v\n", err)
+		}
+	}()
+
+	// Get the first sheet name
+	sheets := file.GetSheetList()
+	if len(sheets) == 0 {
+		return nil, fmt.Errorf("excel file has no sheets")
+	}
+
+	sheetName := sheets[0]
+	rows, err := file.GetRows(sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Excel sheet: %v", err)
+	}
+
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("excel file is empty")
+	}
+
+	headers := rows[0]
+	records := rows[1:]
+
+	// Normalize rows to ensure all rows have the same number of columns as headers
+	normalizedRecords := make([][]string, len(records))
+	for i, row := range records {
+		normalizedRow := make([]string, len(headers))
+		for j := 0; j < len(headers); j++ {
+			if j < len(row) {
+				normalizedRow[j] = strings.TrimSpace(row[j])
+			} else {
+				normalizedRow[j] = ""
+			}
+		}
+		normalizedRecords[i] = normalizedRow
+	}
+
+	return &FileData{
+		Headers: headers,
+		Records: normalizedRecords,
+	}, nil
+}
+
+// fetchEntityIDFromMasterSource fetches the Entity ID from master source configuration
+func fetchEntityIDFromMasterSource(ctx context.Context, masterSourceID string) (string, error) {
+	// Make API call to get master source details
+	result, err := makeReconSaaSAPICall(ctx, "GET", fmt.Sprintf("/v1/admin-recon-saas/sources/%s", masterSourceID), nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch master source: %v", err)
+	}
+
+	// Extract Entity ID from mapping config
+	if config, ok := result["config"].(map[string]interface{}); ok {
+		if mappingConfig, ok := config["mapping_config"].([]interface{}); ok {
+			for _, mapping := range mappingConfig {
+				if mappingMap, ok := mapping.(map[string]interface{}); ok {
+					if destination, ok := mappingMap["destination"].(string); ok {
+						if destination == "EntityID" {
+							if source, ok := mappingMap["source"].(string); ok {
+								return source, nil
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("entity ID not found in master source configuration")
+}
+
+// validateEntityIDVsEntityIdentifier compares Entity ID with Entity Identifier and provides validation
+func validateEntityIDVsEntityIdentifier(ctx context.Context, masterSourceID, entityIdentifier string) (map[string]interface{}, error) {
+	// Try to fetch Entity ID from master source
+	entityID, err := fetchEntityIDFromMasterSource(ctx, masterSourceID)
+	if err != nil {
+		// If API call fails, provide a fallback validation message
+		return map[string]interface{}{
+			"validation_passed": true, // Allow to proceed since we can't verify
+			"entity_id":         "Unknown (API call failed)",
+			"entity_identifier": entityIdentifier,
+			"are_same":          false,
+			"recommendation":    fmt.Sprintf("⚠️  NOTE: Unable to fetch Entity ID from master source (API error: %v). Please ensure Entity Identifier ('%s') is different from the Entity ID defined in your master source configuration.", err, entityIdentifier),
+			"explanation": map[string]interface{}{
+				"entity_id_definition":         "Entity ID is the column defined in master source for grouping records",
+				"entity_identifier_definition": "Entity Identifier is the column used for aggregation processing",
+				"why_different":                "They should be different to enable proper aggregation logic",
+				"api_error":                    err.Error(),
+			},
+		}, nil
+	}
+
+	// Compare Entity ID with Entity Identifier
+	areSame := strings.EqualFold(entityID, entityIdentifier)
+
+	var recommendation string
+	var validationPassed bool
+
+	if areSame {
+		validationPassed = false
+		recommendation = fmt.Sprintf("⚠️  WARNING: Entity ID ('%s') and Entity Identifier ('%s') are the same! For aggregation to work properly, they should be different. Please choose a different column for Entity Identifier.", entityID, entityIdentifier)
+	} else {
+		validationPassed = true
+		recommendation = fmt.Sprintf("✅ Entity ID ('%s') and Entity Identifier ('%s') are different. This is correct for aggregation.", entityID, entityIdentifier)
+	}
+
+	return map[string]interface{}{
+		"validation_passed": validationPassed,
+		"entity_id":         entityID,
+		"entity_identifier": entityIdentifier,
+		"are_same":          areSame,
+		"recommendation":    recommendation,
+		"explanation": map[string]interface{}{
+			"entity_id_definition":         "Entity ID is the column defined in master source for grouping records",
+			"entity_identifier_definition": "Entity Identifier is the column used for aggregation processing",
+			"why_different":                "They should be different to enable proper aggregation logic",
+		},
+	}, nil
 }

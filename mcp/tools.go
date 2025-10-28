@@ -929,6 +929,25 @@ func ReconAggregationTool() server.ServerTool {
 			return mcp.NewToolResultError(fmt.Sprintf("Entity identifier '%s' not found in file 1 columns", entityIdentifier)), nil
 		}
 
+		// Validate Entity ID vs Entity Identifier
+		entityValidation, err := validateEntityIDVsEntityIdentifier(ctx, masterSourceID1, entityIdentifier)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to validate Entity ID vs Entity Identifier: %v", err)), nil
+		}
+
+		// Check if validation passed
+		validationPassed, ok := entityValidation["validation_passed"].(bool)
+		if !ok {
+			return mcp.NewToolResultError("failed to validate entity identifier validation result"), nil
+		}
+		if !validationPassed {
+			recommendation, ok := entityValidation["recommendation"].(string)
+			if !ok {
+				recommendation = "entity identifier validation failed"
+			}
+			return mcp.NewToolResultError(recommendation), nil
+		}
+
 		// Generate aggregation preview if files have less than 40 records
 		var aggregationPreview map[string]interface{}
 		if getRecordCount(analysis1) <= 40 && getRecordCount(analysis2) <= 40 {
@@ -996,9 +1015,10 @@ func ReconAggregationTool() server.ServerTool {
 		}
 
 		result := map[string]interface{}{
-			"status":           "success",
-			"message":          "Aggregation logic configured successfully with comprehensive report configuration",
-			"api_test_results": apiTestResults,
+			"status":            "success",
+			"message":           "Aggregation logic configured successfully with comprehensive report configuration",
+			"entity_validation": entityValidation,
+			"api_test_results":  apiTestResults,
 			"patch_api_ids": map[string]interface{}{
 				"master_source_patch_id":        masterSourceID1,
 				"lookup_patch_id":               lookupID,
