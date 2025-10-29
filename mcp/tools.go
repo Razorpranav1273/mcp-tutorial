@@ -1096,6 +1096,14 @@ func ReconExtractionTool() server.ServerTool {
 			mcp.Description("Master source ID from recon_master_source tool"),
 			mcp.Required(),
 		),
+		mcp.WithString("file_path",
+			mcp.Description("Optional: File path to generate extraction preview (e.g., /path/to/file.csv)"),
+		),
+		mcp.WithString("file_type",
+			mcp.Description("Optional: File type for preview (csv or excel)"),
+			mcp.Enum("csv", "excel"),
+			mcp.DefaultString("csv"),
+		),
 	)
 
 	handler := func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1115,10 +1123,20 @@ func ReconExtractionTool() server.ServerTool {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
+		// Optional: File path for preview
+		filePath := request.GetString("file_path", "")
+		fileType := request.GetString("file_type", "csv")
+
 		// Validate regex pattern
 		_, err = regexp.Compile(extractionPattern)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Invalid regex pattern: %v", err)), nil
+		}
+
+		// Generate preview if file path is provided
+		var extractionPreview map[string]interface{}
+		if filePath != "" {
+			extractionPreview = generateExtractionPreview(filePath, targetColumn, extractionPattern, outputColumnName, fileType)
 		}
 
 		// Update transformation config
@@ -1146,6 +1164,11 @@ func ReconExtractionTool() server.ServerTool {
 				"Upload files to test the extraction functionality",
 				"The extracted values will be available in the output column",
 			},
+		}
+
+		// Add preview if generated
+		if extractionPreview != nil {
+			result["extraction_preview"] = extractionPreview
 		}
 
 		resultJSON, _ := json.MarshalIndent(result, "", "  ")

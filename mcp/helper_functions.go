@@ -1502,16 +1502,14 @@ func generateComprehensiveReportConfig(file1Analysis, file2Analysis map[string]i
 
 func updateMasterReconProcessReportConfig(ctx context.Context, masterReconProcessID, entityIdentifier string) error {
 	payload := map[string]interface{}{
-		"report_config": map[string]interface{}{
-			"source_report_config": []map[string]interface{}{
-				{
-					"column_map": []map[string]interface{}{
-						{
-							"id":            "",
-							"type":          "",
-							"report_column": entityIdentifier,
-							"source_column": "Entity identifier",
-						},
+		"source_report_config": []map[string]interface{}{
+			{
+				"column_map": []map[string]interface{}{
+					{
+						"id":            "",
+						"type":          "",
+						"report_column": entityIdentifier,
+						"source_column": "Entity identifier",
 					},
 				},
 			},
@@ -1721,6 +1719,97 @@ func generateAggregationPreview(file1Path, file2Path, entityIdentifier, aggregat
 			"file2_total_records":   len(file2Data.Records),
 			"unique_entities_file1": len(aggregatedData),
 			"unique_entities_file2": len(file2Lookup),
+		},
+	}
+}
+
+// generateExtractionPreview generates a preview of how regex extraction will work on a file
+func generateExtractionPreview(filePath, targetColumn, extractionPattern, outputColumnName, fileType string) map[string]interface{} {
+	// Read and parse the file
+	fileData, err := readFileData(filePath, fileType)
+	if err != nil {
+		return map[string]interface{}{
+			"preview_enabled": false,
+			"error":           fmt.Sprintf("Failed to read file for preview: %v", err),
+		}
+	}
+
+	// Find target column index
+	targetColIndex := -1
+	for i, col := range fileData.Headers {
+		if col == targetColumn {
+			targetColIndex = i
+			break
+		}
+	}
+
+	if targetColIndex == -1 {
+		return map[string]interface{}{
+			"preview_enabled": false,
+			"error":           fmt.Sprintf("Target column '%s' not found in file headers", targetColumn),
+		}
+	}
+
+	// Compile regex pattern
+	regex, err := regexp.Compile(extractionPattern)
+	if err != nil {
+		return map[string]interface{}{
+			"preview_enabled": false,
+			"error":           fmt.Sprintf("Invalid regex pattern: %v", err),
+		}
+	}
+
+	// Process records and extract values
+	var extractedSamples []map[string]interface{}
+	var matchedCount int
+	var unmatchedCount int
+
+	for i, record := range fileData.Records {
+		if i >= 100 { // Limit to first 100 records for preview
+			break
+		}
+
+		if len(record) > targetColIndex {
+			originalValue := record[targetColIndex]
+			extractedValue := regex.FindString(originalValue)
+
+			if extractedValue != "" {
+				matchedCount++
+				if len(extractedSamples) < 10 { // Show first 10 matches as samples
+					extractedSamples = append(extractedSamples, map[string]interface{}{
+						"original_value":  originalValue,
+						"extracted_value": extractedValue,
+						"row_number":      i + 1, // 0-indexed to 1-indexed
+					})
+				}
+			} else {
+				unmatchedCount++
+			}
+		}
+	}
+
+	totalProcessed := matchedCount + unmatchedCount
+	matchRate := 0.0
+	if totalProcessed > 0 {
+		matchRate = float64(matchedCount) / float64(totalProcessed) * 100
+	}
+
+	return map[string]interface{}{
+		"preview_enabled":    true,
+		"extraction_pattern": extractionPattern,
+		"target_column":      targetColumn,
+		"output_column":      outputColumnName,
+		"total_records":      len(fileData.Records),
+		"records_processed":  totalProcessed,
+		"matched_count":      matchedCount,
+		"unmatched_count":    unmatchedCount,
+		"match_rate":         fmt.Sprintf("%.1f%%", matchRate),
+		"extracted_samples":  extractedSamples,
+		"summary": map[string]interface{}{
+			"pattern_description": fmt.Sprintf("Extracting '%s' from column '%s'", extractionPattern, targetColumn),
+			"output_column":       outputColumnName,
+			"matches_found":       matchedCount,
+			"no_matches":          unmatchedCount,
 		},
 	}
 }
