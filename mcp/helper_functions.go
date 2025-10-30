@@ -1340,7 +1340,7 @@ func getLatestMasterReconProcessID(ctx context.Context) (string, error) {
 }
 
 // generateComprehensiveReportConfig generates a complete report configuration based on file analysis
-func generateComprehensiveReportConfig(file1Analysis, file2Analysis map[string]interface{}, entityIdentifier, masterSourceID1, masterSourceID2 string) map[string]interface{} {
+func generateComprehensiveReportConfig(ctx context.Context, file1Analysis, file2Analysis map[string]interface{}, entityIdentifier, masterSourceID1, masterSourceID2 string) map[string]interface{} {
 	// Extract columns from both files
 	var file1Columns, file2Columns []string
 	if cols1, ok := file1Analysis["all_columns"].([]string); ok {
@@ -1370,18 +1370,84 @@ func generateComprehensiveReportConfig(file1Analysis, file2Analysis map[string]i
 		}
 	}
 
+	// Fetch actual EntityID columns from master sources
+	entityID1, err1 := fetchEntityIDFromMasterSource(ctx, masterSourceID1)
+	entityID2, err2 := fetchEntityIDFromMasterSource(ctx, masterSourceID2)
+
+	// Fallback: If fetch failed, initialize to empty string
+	if err1 != nil {
+		entityID1 = ""
+	}
+	if err2 != nil {
+		entityID2 = ""
+	}
+
+	// Ensure EntityID is different from EntityIdentifier for file 1
+	if entityID1 == entityIdentifier || entityID1 == "" {
+		// Try to find a different unique column for EntityID
+		for _, col := range file1Columns {
+			if col != entityIdentifier && (strings.Contains(strings.ToLower(col), "id") || strings.Contains(strings.ToLower(col), "transaction")) {
+				entityID1 = col
+				break
+			}
+		}
+		// If still not found, use first column that's not the entityIdentifier
+		if entityID1 == entityIdentifier || entityID1 == "" {
+			for _, col := range file1Columns {
+				if col != entityIdentifier {
+					entityID1 = col
+					break
+				}
+			}
+		}
+	}
+
+	// Final safety check: Ensure EntityID1 is never the same as EntityIdentifier
+	if entityID1 == entityIdentifier {
+		// This should never happen due to validation, but if it does, use a fallback
+		log.Printf("WARNING: EntityID1 still equals EntityIdentifier after fallback logic. Using Transaction_ID as fallback.")
+		entityID1 = "Transaction_ID" // Safe fallback
+	}
+
+	// Ensure EntityID is different from EntityIdentifier for file 2
+	if entityID2 == entityIdentifier || entityID2 == "" {
+		// Try to find a different unique column for EntityID
+		for _, col := range file2Columns {
+			if col != entityIdentifier && (strings.Contains(strings.ToLower(col), "id") || strings.Contains(strings.ToLower(col), "bank")) {
+				entityID2 = col
+				break
+			}
+		}
+		// If still not found, use first column that's not the entityIdentifier
+		if entityID2 == entityIdentifier || entityID2 == "" {
+			for _, col := range file2Columns {
+				if col != entityIdentifier {
+					entityID2 = col
+					break
+				}
+			}
+		}
+	}
+
+	// Final safety check: Ensure EntityID2 is never the same as EntityIdentifier
+	if entityID2 == entityIdentifier {
+		// This should never happen due to validation, but if it does, use a fallback
+		log.Printf("WARNING: EntityID2 still equals EntityIdentifier after fallback logic. Using Bank_Transaction_ID as fallback.")
+		entityID2 = "Bank_Transaction_ID" // Safe fallback
+	}
+
 	// Generate column mappings for file 1
 	source1ColumnMap := make([]map[string]interface{}, 0)
 
-	// First add EntityID mapping (original column name)
+	// First add EntityID mapping (actual EntityID column from master source - must be different from EntityIdentifier)
 	source1ColumnMap = append(source1ColumnMap, map[string]interface{}{
 		"id":            "",
 		"type":          "",
 		"report_column": "EntityID",
-		"source_column": entityIdentifier,
+		"source_column": entityID1,
 	})
 
-	// Then add EntityIdentifier mapping (processed version)
+	// Then add EntityIdentifier mapping (for aggregation - this is the column used for grouping)
 	source1ColumnMap = append(source1ColumnMap, map[string]interface{}{
 		"id":            "",
 		"type":          "",
@@ -1411,15 +1477,15 @@ func generateComprehensiveReportConfig(file1Analysis, file2Analysis map[string]i
 	// Generate column mappings for file 2
 	source2ColumnMap := make([]map[string]interface{}, 0)
 
-	// First add EntityID mapping (original column name)
+	// First add EntityID mapping (actual EntityID column from master source - must be different from EntityIdentifier)
 	source2ColumnMap = append(source2ColumnMap, map[string]interface{}{
 		"id":            "",
 		"type":          "",
 		"report_column": "EntityID",
-		"source_column": entityIdentifier,
+		"source_column": entityID2,
 	})
 
-	// Then add EntityIdentifier mapping (processed version)
+	// Then add EntityIdentifier mapping (for aggregation - this is the column used for grouping)
 	source2ColumnMap = append(source2ColumnMap, map[string]interface{}{
 		"id":            "",
 		"type":          "",
@@ -1962,7 +2028,7 @@ func validateEntityIDVsEntityIdentifier(ctx context.Context, masterSourceID, ent
 
 	if areSame {
 		validationPassed = false
-		recommendation = fmt.Sprintf("⚠️  WARNING: Entity ID ('%s') and Entity Identifier ('%s') are the same! For aggregation to work properly, they should be different. Please choose a different column for Entity Identifier.", entityID, entityIdentifier)
+		recommendation = fmt.Sprintf("❌ ERROR: Entity ID ('%s') and Entity Identifier ('%s') cannot be the same! For aggregation to work properly, Entity Identifier must be different from Entity ID. Please choose a different column for Entity Identifier that will be used for aggregation grouping.", entityID, entityIdentifier)
 	} else {
 		validationPassed = true
 		recommendation = fmt.Sprintf("✅ Entity ID ('%s') and Entity Identifier ('%s') are different. This is correct for aggregation.", entityID, entityIdentifier)

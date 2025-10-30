@@ -956,7 +956,7 @@ func ReconAggregationTool() server.ServerTool {
 		}
 
 		// Generate comprehensive report configuration based on file analysis
-		comprehensiveReportConfig := generateComprehensiveReportConfig(analysis1, analysis2, entityIdentifier, masterSourceID1, masterSourceID2)
+		comprehensiveReportConfig := generateComprehensiveReportConfig(ctx, analysis1, analysis2, entityIdentifier, masterSourceID1, masterSourceID2)
 
 		// Test all PATCH API endpoints to see which ones work
 		apiTestResults := make(map[string]interface{})
