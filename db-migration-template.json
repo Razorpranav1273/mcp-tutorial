@@ -1,0 +1,140 @@
+{
+  "application": "prod-mum-rspl-recon-saas",
+  "exclude": [],
+  "id": "GENERATE-NEW-UUID",
+  "keepWaitingPipelines": false,
+  "limitConcurrent": true,
+  "locked": {
+    "ui": true,
+    "allowUnlockUi": false,
+    "description": "Managed via spinacode. UI edits are blocked for consistency."
+  },
+  "name": "DB Migration",
+  "notifications": [],
+  "parameterConfig": [
+    {
+      "default": "",
+      "description": "Image tag / commit SHA being deployed",
+      "hasOptions": false,
+      "label": "Image Tag",
+      "name": "image_tag",
+      "pinned": true,
+      "required": true
+    }
+  ],
+  "stages": [
+    {
+      "account": "prod-noncde-mum-rspl-blue",
+      "cloudProvider": "kubernetes",
+      "completeOtherBranchesThenFail": false,
+      "continuePipeline": true,
+      "failPipeline": false,
+      "location": "recon-saas",
+      "manifestName": "job recon-saas-migration",
+      "mode": "static",
+      "name": "Delete Old DB Migration Job",
+      "options": {
+        "cascading": true
+      },
+      "refId": "delete-db-migration-job",
+      "requisiteStageRefIds": [],
+      "type": "deleteManifest"
+    },
+    {
+      "account": "prod-noncde-mum-rspl-blue",
+      "cloudProvider": "kubernetes",
+      "completeOtherBranchesThenFail": false,
+      "continuePipeline": false,
+      "failPipeline": true,
+      "manifests": [
+        {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "recon-saas-migration",
+            "namespace": "recon-saas"
+          },
+          "spec": {
+            "backoffLimit": 0,
+            "template": {
+              "metadata": {
+                "labels": {
+                  "name": "recon-saas-migration"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "args": [
+                      "run_migration"
+                    ],
+                    "env": [
+                      {
+                        "name": "MIGRATION_CMD",
+                        "value": "up"
+                      },
+                      {
+                        "name": "APP_ENV",
+                        "value": "prod"
+                      }
+                    ],
+                    "envFrom": [
+                      {
+                        "secretRef": {
+                          "name": "recon-saas",
+                          "optional": false
+                        }
+                      }
+                    ],
+                    "image": "c.rzp.io/razorpay/recon-saas:migration-${ parameters.image_tag }",
+                    "name": "recon-saas-migration",
+                    "resources": {
+                      "limits": {
+                        "cpu": "1000m",
+                        "memory": "2Gi"
+                      },
+                      "requests": {
+                        "cpu": "500m",
+                        "memory": "1Gi"
+                      }
+                    }
+                  }
+                ],
+                "imagePullSecrets": [
+                  {
+                    "name": "registry"
+                  }
+                ],
+                "nodeSelector": {
+                  "node.kubernetes.io/worker-generic-base": ""
+                },
+                "restartPolicy": "Never"
+              }
+            }
+          }
+        }
+      ],
+      "moniker": {
+        "app": "prod-mum-rspl-recon-saas"
+      },
+      "name": "Run DB Migration",
+      "namespaceOverride": "recon-saas",
+      "refId": "run-db-migration",
+      "requiredArtifactIds": [],
+      "requiredArtifacts": [],
+      "requisiteStageRefIds": [
+        "delete-db-migration-job"
+      ],
+      "skipExpressionEvaluation": false,
+      "source": "text",
+      "trafficManagement": {
+        "enabled": false,
+        "options": {
+          "enableTraffic": false
+        }
+      },
+      "type": "deployManifest"
+    }
+  ],
+  "triggers": []
+}
